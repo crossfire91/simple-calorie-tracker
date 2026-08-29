@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:simple_calorie_tracker/CalorieSummaryScreen/CalorieSummaryScreenModel.dart';
 import 'package:simple_calorie_tracker/goal/weight_journey.dart';
+import 'package:simple_calorie_tracker/habit/streak.dart';
 import 'package:simple_calorie_tracker/l10n/strings.dart';
 import 'package:simple_calorie_tracker/theme/app_colors.dart';
 
@@ -82,6 +83,9 @@ class _CalorieCalendarState extends State<CalorieCalendar> {
   DayDigest? _digestFor(DateTime date) =>
       widget.digests[JourneyMath.dateKey(date)];
 
+  Set<String> get _streakKeys =>
+      StreakMath.currentStreakKeys(StreakMath.mealKeys(widget.digests));
+
   void _select(DateTime date) {
     HapticFeedback.selectionClick();
     widget.onDateSelected(JourneyMath.dayOnly(date));
@@ -117,6 +121,8 @@ class _CalorieCalendarState extends State<CalorieCalendar> {
     final headerDate = _monthOpen ? _monthCursor : visibleMonday;
     final isThisWeek = JourneyMath.sameDay(visibleMonday, JourneyMath.mondayOf(_today));
     final showToday = !JourneyMath.sameDay(_selected, _today);
+    final streakKeys = _streakKeys;
+    final streak = streakKeys.length;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 280),
@@ -132,10 +138,14 @@ class _CalorieCalendarState extends State<CalorieCalendar> {
         children: [
           _Header(
             title: s.monthYear(headerDate),
-            subtitle: _subtitle(s, visibleMonday, isThisWeek),
+            subtitle: _subtitle(s, visibleMonday, isThisWeek, streak, streakKeys),
             showToday: showToday,
             monthOpen: _monthOpen,
+            streak: streak,
+            streakLabel: s.streakLabel(streak),
+            streakChip: s.streakChip(streak),
             onToday: _goToday,
+            onStreak: _goToday,
             onPrev: () => _monthOpen ? _shiftMonth(-1) : _shiftWeek(-1),
             onNext: () => _monthOpen ? _shiftMonth(1) : _shiftWeek(1),
             onToggleMonth: () => setState(() => _monthOpen = !_monthOpen),
@@ -156,6 +166,7 @@ class _CalorieCalendarState extends State<CalorieCalendar> {
                     today: _today,
                     budget: widget.kcalBudget,
                     digestFor: _digestFor,
+                    streakKeys: streakKeys,
                     onSelect: _select,
                   )
                 : SizedBox(
@@ -170,23 +181,14 @@ class _CalorieCalendarState extends State<CalorieCalendar> {
                             setState(() => _visibleWeekIndex = index);
                           },
                           itemBuilder: (context, index) {
-                            final monday = _mondayAt(index);
-                            return Row(
-                              children: List.generate(7, (i) {
-                                final date = monday.add(Duration(days: i));
-                                return Expanded(
-                                  child: _DayCell(
-                                    date: date,
-                                    selected: JourneyMath.sameDay(date, _selected),
-                                    isToday: JourneyMath.sameDay(date, _today),
-                                    inMonth: true,
-                                    compact: false,
-                                    digest: _digestFor(date),
-                                    budget: widget.kcalBudget,
-                                    onTap: () => _select(date),
-                                  ),
-                                );
-                              }),
+                            return _WeekStrip(
+                              monday: _mondayAt(index),
+                              selected: _selected,
+                              today: _today,
+                              budget: widget.kcalBudget,
+                              digestFor: _digestFor,
+                              streakKeys: streakKeys,
+                              onSelect: _select,
                             );
                           },
                         ),
@@ -199,13 +201,22 @@ class _CalorieCalendarState extends State<CalorieCalendar> {
             date: _selected,
             digest: _digestFor(_selected),
             budget: widget.kcalBudget,
+            streak: streakKeys.contains(JourneyMath.dateKey(_selected))
+                ? streak
+                : 0,
           ),
         ],
       ),
     );
   }
 
-  String _subtitle(S s, DateTime monday, bool isThisWeek) {
+  String _subtitle(
+    S s,
+    DateTime monday,
+    bool isThisWeek,
+    int streak,
+    Set<String> streakKeys,
+  ) {
     final week = isThisWeek ? s.thisWeek : s.weekLabel(JourneyMath.isoWeek(monday));
     final days = List.generate(7, (i) => monday.add(Duration(days: i)));
     var logged = 0;
@@ -225,6 +236,10 @@ class _CalorieCalendarState extends State<CalorieCalendar> {
     if (mealDays > 0) {
       parts.add(s.avgKcal((kcalSum / mealDays).round()));
     }
+    final weekHasStreak = days.any((day) => streakKeys.contains(JourneyMath.dateKey(day)));
+    if (weekHasStreak && streak > 0) {
+      parts.add(s.streakLabel(streak));
+    }
     return parts.join(' · ');
   }
 }
@@ -234,7 +249,11 @@ class _Header extends StatelessWidget {
   final String subtitle;
   final bool showToday;
   final bool monthOpen;
+  final int streak;
+  final String streakLabel;
+  final String streakChip;
   final VoidCallback onToday;
+  final VoidCallback onStreak;
   final VoidCallback onPrev;
   final VoidCallback onNext;
   final VoidCallback onToggleMonth;
@@ -248,7 +267,11 @@ class _Header extends StatelessWidget {
     required this.subtitle,
     required this.showToday,
     required this.monthOpen,
+    required this.streak,
+    required this.streakLabel,
+    required this.streakChip,
     required this.onToday,
+    required this.onStreak,
     required this.onPrev,
     required this.onNext,
     required this.onToggleMonth,
@@ -315,6 +338,10 @@ class _Header extends StatelessWidget {
               ),
             ),
           ),
+          if (streak > 0) ...[
+            const SizedBox(width: 6),
+            _StreakChip(label: streakLabel, chip: streakChip, onTap: onStreak),
+          ],
           if (showToday) ...[
             const SizedBox(width: 6),
             _TodayChip(label: todayLabel, onTap: onToday),
@@ -360,6 +387,61 @@ class _NavButton extends StatelessWidget {
   }
 }
 
+class _StreakChip extends StatelessWidget {
+  final String label;
+  final String chip;
+  final VoidCallback onTap;
+
+  const _StreakChip({
+    required this.label,
+    required this.chip,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: label,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          key: const Key('calendar-streak'),
+          height: 28,
+          padding: const EdgeInsets.symmetric(horizontal: 9),
+          decoration: BoxDecoration(
+            color: AppColors.mint.withOpacity(0.18),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: AppColors.mint.withOpacity(0.55)),
+            boxShadow: AppColors.glow(AppColors.mint, 0.16),
+          ),
+          alignment: Alignment.center,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.local_fire_department_rounded,
+                size: 15,
+                color: AppColors.mint,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                chip,
+                style: const TextStyle(
+                  color: AppColors.mint,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 11,
+                  height: 1,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _TodayChip extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
@@ -396,17 +478,19 @@ class _SelectedCaption extends StatelessWidget {
   final DateTime date;
   final DayDigest? digest;
   final int budget;
+  final int streak;
 
   const _SelectedCaption({
     required this.date,
     required this.digest,
     required this.budget,
+    this.streak = 0,
   });
 
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
-    final text = digest == null || !digest!.isLogged
+    var text = digest == null || !digest!.isLogged
         ? s.dayEmpty
         : s.dayDigestLine(
             kcal: digest!.kcal.round(),
@@ -414,6 +498,9 @@ class _SelectedCaption extends StatelessWidget {
             meals: digest!.mealCount,
             weighed: digest!.hasWeight,
           );
+    if (streak > 0) {
+      text = '$text · ${s.streakLabel(streak)}';
+    }
     final over = digest != null && digest!.hasMeals && digest!.kcal > budget;
 
     return Padding(
@@ -431,12 +518,78 @@ class _SelectedCaption extends StatelessWidget {
   }
 }
 
+class _WeekStrip extends StatelessWidget {
+  final DateTime monday;
+  final DateTime selected;
+  final DateTime today;
+  final int budget;
+  final DayDigest? Function(DateTime date) digestFor;
+  final Set<String> streakKeys;
+  final ValueChanged<DateTime> onSelect;
+
+  const _WeekStrip({
+    required this.monday,
+    required this.selected,
+    required this.today,
+    required this.budget,
+    required this.digestFor,
+    required this.streakKeys,
+    required this.onSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final flags = List<bool>.generate(
+      7,
+      (i) => _onStreak(monday.add(Duration(days: i)), streakKeys),
+    );
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        _StreakRail(flags: flags),
+        Row(
+          children: List.generate(7, (i) {
+            final date = monday.add(Duration(days: i));
+            return Expanded(
+              child: _DayCell(
+                date: date,
+                selected: JourneyMath.sameDay(date, selected),
+                isToday: JourneyMath.sameDay(date, today),
+                inMonth: true,
+                compact: false,
+                digest: digestFor(date),
+                budget: budget,
+                inStreak: flags[i],
+                streakLeft: _joinsPrev(date, streakKeys),
+                streakRight: _joinsNext(date, streakKeys),
+                onTap: () => onSelect(date),
+              ),
+            );
+          }),
+        ),
+      ],
+    );
+  }
+}
+
+bool _onStreak(DateTime date, Set<String> keys) =>
+    keys.contains(JourneyMath.dateKey(date));
+
+bool _joinsPrev(DateTime date, Set<String> keys) =>
+    _onStreak(date, keys) &&
+    _onStreak(date.subtract(const Duration(days: 1)), keys);
+
+bool _joinsNext(DateTime date, Set<String> keys) =>
+    _onStreak(date, keys) &&
+    _onStreak(date.add(const Duration(days: 1)), keys);
+
 class _MonthGrid extends StatelessWidget {
   final DateTime month;
   final DateTime selected;
   final DateTime today;
   final int budget;
   final DayDigest? Function(DateTime date) digestFor;
+  final Set<String> streakKeys;
   final ValueChanged<DateTime> onSelect;
 
   const _MonthGrid({
@@ -445,6 +598,7 @@ class _MonthGrid extends StatelessWidget {
     required this.today,
     required this.budget,
     required this.digestFor,
+    required this.streakKeys,
     required this.onSelect,
   });
 
@@ -499,6 +653,9 @@ class _MonthGrid extends StatelessWidget {
                     compact: true,
                     digest: digestFor(date),
                     budget: budget,
+                    inStreak: _onStreak(date, streakKeys),
+                    streakLeft: _joinsPrev(date, streakKeys),
+                    streakRight: _joinsNext(date, streakKeys),
                     onTap: () => onSelect(date),
                   ),
                 );
@@ -519,6 +676,9 @@ class _DayCell extends StatefulWidget {
   final bool compact;
   final DayDigest? digest;
   final int budget;
+  final bool inStreak;
+  final bool streakLeft;
+  final bool streakRight;
   final VoidCallback onTap;
 
   const _DayCell({
@@ -529,6 +689,9 @@ class _DayCell extends StatefulWidget {
     required this.compact,
     required this.digest,
     required this.budget,
+    required this.inStreak,
+    required this.streakLeft,
+    required this.streakRight,
     required this.onTap,
   });
 
@@ -553,10 +716,11 @@ class _DayCellState extends State<_DayCell> {
     final weekday = s.weekdaysShort[widget.date.weekday - 1];
     final size = widget.compact ? 40.0 : 48.0;
 
+    final fillSelected = widget.selected && !hasMeals;
     Color numberColor;
-    if (widget.selected) {
+    if (fillSelected) {
       numberColor = Colors.white;
-    } else if (widget.isToday) {
+    } else if (widget.selected || widget.isToday) {
       numberColor = AppColors.accentSoft;
     } else if (dimmed) {
       numberColor = AppColors.textFaint.withOpacity(0.55);
@@ -590,11 +754,13 @@ class _DayCellState extends State<_DayCell> {
                 Text(
                   weekday,
                   style: TextStyle(
-                    color: widget.selected
+                    color: widget.isToday
                         ? AppColors.accentSoft
-                        : widget.isToday
-                            ? AppColors.accentSoft.withOpacity(0.85)
-                            : AppColors.textFaint,
+                        : widget.selected
+                            ? Colors.white
+                            : widget.inStreak
+                                ? AppColors.mint
+                                : AppColors.textFaint,
                     fontSize: 10,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.3,
@@ -615,31 +781,51 @@ class _DayCellState extends State<_DayCell> {
                       height: size,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        gradient: widget.selected ? AppColors.gradient : null,
-                        color: widget.selected
+                        gradient: fillSelected ? AppColors.gradient : null,
+                        color: fillSelected
                             ? null
-                            : widget.isToday
+                            : widget.isToday || widget.selected
                                 ? AppColors.surfaceHigh
                                 : Colors.transparent,
                         border: Border.all(
-                          color: widget.selected
+                          color: fillSelected
                               ? Colors.white.withOpacity(0.18)
                               : widget.isToday
-                                  ? AppColors.accentSoft.withOpacity(0.7)
-                                  : Colors.transparent,
-                          width: widget.isToday && !widget.selected ? 1.4 : 1,
+                                  ? AppColors.accentSoft.withOpacity(widget.selected ? 0.95 : 0.82)
+                                  : widget.selected
+                                      ? Colors.transparent
+                                      : widget.inStreak
+                                          ? AppColors.mint.withOpacity(0.42)
+                                          : Colors.transparent,
+                          width: widget.isToday
+                              ? 2
+                              : (widget.inStreak && !widget.selected)
+                                  ? 1.4
+                                  : 1,
                         ),
-                        boxShadow: widget.selected
-                            ? AppColors.glow(AppColors.accent, 0.28)
-                            : null,
+                        boxShadow: widget.isToday
+                            ? AppColors.glow(
+                                AppColors.accent,
+                                widget.selected ? 0.34 : 0.22,
+                              )
+                            : widget.selected
+                                ? AppColors.glow(
+                                    over ? AppColors.coral : AppColors.accent,
+                                    hasMeals ? 0.32 : 0.28,
+                                  )
+                                : widget.inStreak
+                                    ? AppColors.glow(AppColors.mint, 0.1)
+                                    : null,
                       ),
                     ),
-                    if (hasMeals && !widget.selected)
+                    if (hasMeals)
                       CustomPaint(
                         size: Size(size, size),
                         painter: _MiniRingPainter(
                           progress: progress.clamp(0.0, 1.0),
                           over: over,
+                          selected: widget.selected,
+                          today: widget.isToday,
                         ),
                       ),
                     Text(
@@ -651,23 +837,27 @@ class _DayCellState extends State<_DayCell> {
                         height: 1,
                       ),
                     ),
-                    if (digest?.hasWeight == true)
+                    if (digest?.hasWeight == true || (widget.isToday && hasMeals))
                       Positioned(
                         bottom: widget.compact ? 4 : 5,
-                        child: Container(
-                          width: 5,
-                          height: 5,
-                          decoration: BoxDecoration(
-                            color: widget.selected
-                                ? Colors.white
-                                : AppColors.mint,
-                            shape: BoxShape.circle,
-                          ),
+                        child: _TrackedPip(
+                          today: widget.isToday,
+                          selected: widget.selected,
                         ),
                       ),
                   ],
                 ),
               ),
+              if (!widget.compact)
+                SizedBox(
+                  height: 8,
+                  width: double.infinity,
+                  child: _StreakLink(
+                    active: widget.inStreak,
+                    left: widget.streakLeft,
+                    right: widget.streakRight,
+                  ),
+                ),
             ],
           ),
         ),
@@ -676,23 +866,185 @@ class _DayCellState extends State<_DayCell> {
   }
 }
 
+class _TrackedPip extends StatelessWidget {
+  final bool today;
+  final bool selected;
+
+  const _TrackedPip({required this.today, required this.selected});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = today
+        ? AppColors.accentSoft
+        : selected
+            ? Colors.white
+            : AppColors.mint;
+    return Container(
+      width: today ? 6 : 5,
+      height: today ? 6 : 5,
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+        boxShadow: today
+            ? [
+                BoxShadow(
+                  color: AppColors.accentSoft.withOpacity(0.85),
+                  blurRadius: 8,
+                  spreadRadius: 1.6,
+                ),
+                BoxShadow(
+                  color: AppColors.accentSoft.withOpacity(0.45),
+                  blurRadius: 14,
+                  spreadRadius: 2.4,
+                ),
+              ]
+            : null,
+      ),
+    );
+  }
+}
+
+class _StreakRail extends StatelessWidget {
+  final List<bool> flags;
+
+  const _StreakRail({required this.flags});
+
+  @override
+  Widget build(BuildContext context) {
+    int? start;
+    int? end;
+    for (var i = 0; i < flags.length; i++) {
+      if (!flags[i]) continue;
+      start ??= i;
+      end = i;
+    }
+    if (start == null || end == null) return const SizedBox.shrink();
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cell = constraints.maxWidth / 7;
+        return Stack(
+          children: [
+            Positioned(
+              left: start! * cell + 3,
+              width: (end! - start! + 1) * cell - 6,
+              top: 24,
+              height: 56,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: AppColors.mint.withOpacity(0.14),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: AppColors.mint.withOpacity(0.5),
+                    width: 1.4,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _StreakLink extends StatelessWidget {
+  final bool active;
+  final bool left;
+  final bool right;
+
+  const _StreakLink({
+    required this.active,
+    required this.left,
+    required this.right,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (!active) return const SizedBox.shrink();
+
+    if (!left && !right) {
+      return Center(
+        child: Container(
+          width: 16,
+          height: 3,
+          decoration: BoxDecoration(
+            color: AppColors.mint,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      children: [
+        Expanded(child: left ? _bar() : const SizedBox.shrink()),
+        Expanded(child: right ? _bar() : const SizedBox.shrink()),
+      ],
+    );
+  }
+
+  Widget _bar() {
+    return Container(
+      height: 3,
+      color: AppColors.mint.withOpacity(0.85),
+    );
+  }
+}
+
 class _MiniRingPainter extends CustomPainter {
   final double progress;
   final bool over;
+  final bool selected;
+  final bool today;
 
-  _MiniRingPainter({required this.progress, required this.over});
+  _MiniRingPainter({
+    required this.progress,
+    required this.over,
+    this.selected = false,
+    this.today = false,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2 - 3.5;
-    const stroke = 2.6;
+    final marked = selected || today;
+    final radius = size.width / 2 - (marked ? 5.2 : 3.5);
+    final stroke = marked ? 3.4 : 2.6;
     final rect = Rect.fromCircle(center: center, radius: radius);
+    final hue = over ? AppColors.coralSoft : AppColors.accentSoft;
+
+    if (today) {
+      final todayHalo = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = selected ? 2.4 : 2
+        ..color = AppColors.accentSoft.withOpacity(selected ? 1 : 0.88);
+      canvas.drawCircle(center, size.width / 2 - 1.3, todayHalo);
+    } else if (selected) {
+      final halo = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = hue.withOpacity(0.95);
+      canvas.drawCircle(center, size.width / 2 - 1.3, halo);
+    }
+
+    if (progress > 0) {
+      final pie = Path()
+        ..moveTo(center.dx, center.dy)
+        ..arcTo(Rect.fromCircle(center: center, radius: radius - stroke * 0.35), -math.pi / 2, math.pi * 2 * progress, false)
+        ..close();
+      canvas.drawPath(
+        pie,
+        Paint()
+          ..style = PaintingStyle.fill
+          ..color = hue.withOpacity(selected ? 0.34 : today ? 0.24 : 0.16),
+      );
+    }
 
     final track = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = stroke
-      ..color = const Color(0xFF243044);
+      ..color = marked ? const Color(0xFF31415A) : const Color(0xFF243044);
     canvas.drawCircle(center, radius, track);
 
     if (progress <= 0) return;
@@ -716,6 +1068,9 @@ class _MiniRingPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _MiniRingPainter oldDelegate) {
-    return oldDelegate.progress != progress || oldDelegate.over != over;
+    return oldDelegate.progress != progress ||
+        oldDelegate.over != over ||
+        oldDelegate.selected != selected ||
+        oldDelegate.today != today;
   }
 }

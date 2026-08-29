@@ -10,6 +10,7 @@ class RestOfDayCoach extends StatelessWidget {
   final double consumed;
   final int budget;
   final List<FavoriteMeal> favorites;
+  final List<FavoriteMeal> recent;
   final List<LoggedBite> meals;
   final double? weightKg;
   final DateTime? now;
@@ -23,6 +24,7 @@ class RestOfDayCoach extends StatelessWidget {
     required this.consumed,
     required this.budget,
     this.favorites = const [],
+    this.recent = const [],
     this.meals = const [],
     this.weightKg,
     this.now,
@@ -39,6 +41,7 @@ class RestOfDayCoach extends StatelessWidget {
       consumed: consumed,
       budget: budget,
       favorites: favorites,
+      recent: recent,
       meals: meals,
       weightKg: weightKg,
       now: now,
@@ -48,6 +51,7 @@ class RestOfDayCoach extends StatelessWidget {
       plan: plan,
       accent: accent,
       favorites: favorites,
+      recent: recent,
       onLogFavorite: onLogFavorite,
       onAdd: onAdd,
     );
@@ -135,6 +139,7 @@ class _CoachBody extends StatelessWidget {
   final RestOfDayPlan plan;
   final Color accent;
   final List<FavoriteMeal> favorites;
+  final List<FavoriteMeal> recent;
   final ValueChanged<FavoriteMeal>? onLogFavorite;
   final VoidCallback? onAdd;
 
@@ -142,9 +147,21 @@ class _CoachBody extends StatelessWidget {
     required this.plan,
     required this.accent,
     required this.favorites,
+    this.recent = const [],
     this.onLogFavorite,
     this.onAdd,
   });
+
+  FavoriteMeal? _match(String? id) {
+    if (id == null || id.isEmpty) return null;
+    for (final fav in favorites) {
+      if (fav.id == id) return fav;
+    }
+    for (final meal in recent) {
+      if (meal.id == id) return meal;
+    }
+    return null;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -171,53 +188,41 @@ class _CoachBody extends StatelessWidget {
             letterSpacing: -0.3,
           ),
         ),
-        if (plan.mood != CoachMood.over &&
-            plan.mood != CoachMood.closed &&
-            plan.proteinLeft > 0) ...[
+        if (taps.isNotEmpty) ...[
           const SizedBox(height: 14),
-          _ProteinMeter(
-            grams: plan.proteinGrams,
-            target: plan.proteinTarget,
-            label: s.proteinStill(plan.proteinLeft),
-            accent: plan.mood == CoachMood.proteinPush
-                ? AppColors.coralSoft
-                : AppColors.mint,
+          for (final item in taps)
+            _FillRow(
+              name: s.servingsOf(item.label(s.isDe), item.servings),
+              kcal: item.kcal,
+              accent: accent,
+              onTap: onLogFavorite == null
+                  ? null
+                  : () {
+                      final match = _match(item.favoriteId);
+                      if (match == null) return;
+                      HapticFeedback.mediumImpact();
+                      onLogFavorite!(match);
+                    },
+            ),
+          Padding(
+            padding: const EdgeInsets.only(top: 8, bottom: 2),
+            child: Text(
+              s.restTogether(plan.filledKcal, plan.leftoverAfterPlan),
+              style: TextStyle(
+                color: accent,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
         ],
-        if (taps.isNotEmpty || onAdd != null) ...[
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final item in taps)
-                _CoachChip(
-                  label: item.label(s.isDe),
-                  kcal: item.kcal,
-                  accent: accent,
-                  onTap: onLogFavorite == null
-                      ? null
-                      : () {
-                          FavoriteMeal? match;
-                          for (final fav in favorites) {
-                            if (fav.id == item.favoriteId) {
-                              match = fav;
-                              break;
-                            }
-                          }
-                          if (match == null) return;
-                          HapticFeedback.mediumImpact();
-                          onLogFavorite!(match);
-                        },
-                ),
-              if (onAdd != null)
-                _CoachChip(
-                  label: s.coachAdd,
-                  accent: AppColors.accent,
-                  filled: true,
-                  onTap: onAdd,
-                ),
-            ],
+        if (onAdd != null) ...[
+          const SizedBox(height: 10),
+          _CoachChip(
+            label: s.coachAdd,
+            accent: AppColors.accent,
+            filled: true,
+            onTap: onAdd,
           ),
         ],
       ],
@@ -225,52 +230,54 @@ class _CoachBody extends StatelessWidget {
   }
 }
 
-class _ProteinMeter extends StatelessWidget {
-  final int grams;
-  final int target;
-  final String label;
+class _FillRow extends StatelessWidget {
+  final String name;
+  final int kcal;
   final Color accent;
+  final VoidCallback? onTap;
 
-  const _ProteinMeter({
-    required this.grams,
-    required this.target,
-    required this.label,
+  const _FillRow({
+    required this.name,
+    required this.kcal,
     required this.accent,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final progress = target <= 0 ? 0.0 : (grams / target).clamp(0.0, 1.0);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            color: AppColors.textMuted,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 7),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(99),
-          child: Stack(
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(
             children: [
-              Container(height: 6, color: AppColors.surfaceHigh),
-              FractionallySizedBox(
-                widthFactor: progress,
-                child: Container(
-                  height: 6,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(colors: [accent, accent.withOpacity(0.7)]),
+              Expanded(
+                child: Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.text,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
                   ),
+                ),
+              ),
+              Text(
+                '$kcal kcal',
+                style: TextStyle(
+                  color: accent,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
             ],
           ),
         ),
-      ],
+      ),
     );
   }
 }

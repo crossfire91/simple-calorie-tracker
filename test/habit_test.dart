@@ -5,6 +5,8 @@ import 'package:simple_calorie_tracker/habit/micro_goals.dart';
 import 'package:simple_calorie_tracker/habit/protein.dart';
 import 'package:simple_calorie_tracker/habit/rest_of_day.dart';
 import 'package:simple_calorie_tracker/habit/streak.dart';
+import 'package:simple_calorie_tracker/l10n/app_lang.dart';
+import 'package:simple_calorie_tracker/l10n/strings.dart';
 
 void main() {
   test('streak counts back from today or yesterday', () {
@@ -29,6 +31,13 @@ void main() {
         now: DateTime(2026, 8, 29),
       ),
       0,
+    );
+    expect(
+      StreakMath.currentStreakKeys(
+        {'27.8.2026', '28.8.2026', '29.8.2026'},
+        now: DateTime(2026, 8, 29, 19),
+      ),
+      {'27.8.2026', '28.8.2026', '29.8.2026'},
     );
   });
 
@@ -119,7 +128,7 @@ void main() {
     expect(plan.suggestions.first.fromFavorite, isTrue);
   });
 
-  test('coach prefers protein when the gap is large', () {
+  test('coach suggests a leftover favorite without protein talk', () {
     final plan = RestOfDayMath.plan(
       consumed: 1400,
       budget: 2200,
@@ -145,8 +154,90 @@ void main() {
       weightKg: 70,
       now: DateTime(2026, 8, 29, 15),
     );
-    expect(plan.mood, CoachMood.proteinPush);
-    expect(plan.suggestions.first.favoriteId, 'chicken');
+    expect(plan.mood, CoachMood.nextPlate);
+    expect(plan.suggestions.first.fromFavorite, isTrue);
+  });
+
+  test('coach does not invent catalog meals', () {
+    final plan = RestOfDayMath.plan(
+      consumed: 0,
+      budget: 2200,
+      now: DateTime(2026, 8, 29, 19),
+    );
+    expect(plan.mood, CoachMood.dinner);
+    expect(plan.suggestions, isEmpty);
+    expect(plan.namesAPlate, isFalse);
+    expect(const S(AppLang.de).coachLine(plan), 'Noch 2200 kcal offen.');
+  });
+
+  test('coach names a known dinner that fills the leftover', () {
+    final plan = RestOfDayMath.plan(
+      consumed: 1400,
+      budget: 2200,
+      favorites: const [
+        FavoriteMeal(
+          id: 'p',
+          name: 'Pizza',
+          kcalPer100g: 260,
+          weightInGrams: 300,
+        ),
+      ],
+      meals: const [
+        LoggedBite(name: 'Mittag', kcal: 1400, proteinG: 40),
+      ],
+      now: DateTime(2026, 8, 29, 19),
+    );
+    expect(plan.hasFill, isTrue);
+    expect(plan.primary?.nameDe, 'Pizza');
+    expect(plan.filledKcal, lessThanOrEqualTo(plan.remaining));
+    expect(const S(AppLang.de).coachLine(plan), contains('Aus deinen Favoriten'));
+  });
+
+  test('coach fills favorites first, then recent meals', () {
+    final plan = RestOfDayMath.plan(
+      consumed: 0,
+      budget: 1200,
+      favorites: const [
+        FavoriteMeal(
+          id: 'j',
+          name: 'Joghurt',
+          kcalPer100g: 80,
+          weightInGrams: 150,
+          useCount: 8,
+        ),
+      ],
+      recent: const [
+        FavoriteMeal(
+          id: 'p',
+          name: 'Pizza',
+          kcalPer100g: 260,
+          weightInGrams: 308,
+        ),
+      ],
+      now: DateTime(2026, 8, 29, 19),
+    );
+    expect(plan.suggestions.first.nameDe, 'Joghurt');
+    expect(plan.suggestions.first.fromFavorite, isTrue);
+    expect(plan.suggestions.map((item) => item.nameDe), contains('Pizza'));
+    expect(plan.fromFavorites, isTrue);
+  });
+
+  test('coach stacks known meals until leftover is roughly full', () {
+    final plan = RestOfDayMath.plan(
+      consumed: 0,
+      budget: 2200,
+      favorites: const [
+        FavoriteMeal(id: 'p', name: 'Pizza', kcalPer100g: 260, weightInGrams: 308),
+        FavoriteMeal(id: 'c', name: 'Hähnchen', kcalPer100g: 165, weightInGrams: 273),
+        FavoriteMeal(id: 's', name: 'Salat', kcalPer100g: 110, weightInGrams: 200),
+        FavoriteMeal(id: 'j', name: 'Joghurt', kcalPer100g: 80, weightInGrams: 163),
+      ],
+      now: DateTime(2026, 8, 29, 19),
+    );
+    expect(plan.suggestions.length, greaterThan(1));
+    expect(plan.filledKcal, greaterThan(1500));
+    expect(plan.filledKcal, lessThanOrEqualTo(2200));
+    expect(plan.suggestions.map((item) => item.nameDe), containsAll(['Pizza', 'Hähnchen']));
   });
 
   test('late evening with little room becomes a sip', () {
@@ -195,5 +286,52 @@ void main() {
     );
     expect(emptyEvening.breakfast.state, MicroGoalState.open);
     expect(emptyEvening.noLate.state, MicroGoalState.open);
+  });
+
+  test('quick meals put pinned favorites first and skip duplicates', () {
+    const oats = FavoriteMeal(
+      id: 'f1',
+      name: 'Oats',
+      kcalPer100g: 380,
+      weightInGrams: 80,
+    );
+    const oatsAgain = FavoriteMeal(
+      id: 'r1',
+      name: 'oats',
+      kcalPer100g: 380,
+      weightInGrams: 90,
+    );
+    const pizza = FavoriteMeal(
+      id: 'r2',
+      name: 'Pizza',
+      kcalPer100g: 260,
+      weightInGrams: 350,
+    );
+    final merged = QuickMeals.merge(
+      favorites: const [oats],
+      recent: const [oatsAgain, pizza],
+    );
+    expect(merged.map((meal) => meal.name).toList(), ['Oats', 'Pizza']);
+  });
+
+  test('quick meals copy a recent menu onto a pinned favorite', () {
+    const oats = FavoriteMeal(
+      id: 'f1',
+      name: 'Oats',
+      kcalPer100g: 380,
+      weightInGrams: 80,
+    );
+    const oatsAgain = FavoriteMeal(
+      id: 'r1',
+      name: 'oats',
+      kcalPer100g: 380,
+      weightInGrams: 80,
+      breakdown: '{"mealName":"Oats","items":[],"unmatchedItems":[{"name":"Hafer","queryEn":"oats","grams":80}]}',
+    );
+    final merged = QuickMeals.merge(
+      favorites: const [oats],
+      recent: const [oatsAgain],
+    );
+    expect(merged.single.breakdown, oatsAgain.breakdown);
   });
 }

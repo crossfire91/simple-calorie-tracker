@@ -17,6 +17,7 @@ object CalorieWidgetStore {
     private const val KEY_PROTEIN_T = "proteinTarget"
     private const val KEY_PROTEIN_NAME = "proteinName"
     private const val KEY_PROTEIN_ID = "proteinFavoriteId"
+    private const val KEY_STREAK = "streak"
 
     fun save(
         context: Context,
@@ -33,6 +34,7 @@ object CalorieWidgetStore {
         proteinTarget: Int = 90,
         proteinName: String = "",
         proteinFavoriteId: String = "",
+        streak: Int = 0,
     ) {
         val editor = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
         editor
@@ -48,6 +50,7 @@ object CalorieWidgetStore {
             .putInt(KEY_PROTEIN_T, proteinTarget)
             .putString(KEY_PROTEIN_NAME, proteinName)
             .putString(KEY_PROTEIN_ID, proteinFavoriteId)
+            .putInt(KEY_STREAK, streak)
         val chips = favorites.take(2)
         editor.putInt(KEY_FAV_COUNT, chips.size)
         for (index in 0 until 2) {
@@ -90,6 +93,7 @@ object CalorieWidgetStore {
             proteinTarget = prefs.getInt(KEY_PROTEIN_T, 90),
             proteinName = prefs.getString(KEY_PROTEIN_NAME, "") ?: "",
             proteinFavoriteId = prefs.getString(KEY_PROTEIN_ID, "") ?: "",
+            streak = prefs.getInt(KEY_STREAK, 0),
         )
     }
 
@@ -113,6 +117,7 @@ object CalorieWidgetStore {
         val proteinTarget: Int = 90,
         val proteinName: String = "",
         val proteinFavoriteId: String = "",
+        val streak: Int = 0,
     ) {
         val german: Boolean get() = lang != "en"
         val coachLine: String get() = if (german) coachLineDe else coachLineEn

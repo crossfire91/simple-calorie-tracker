@@ -26,15 +26,26 @@ class WeightSnapshot {
   });
 
   bool get visible =>
-      profile.mode == TargetMode.calculated && result != null;
+      profile.mode == TargetMode.manual || result != null;
 
-  bool get showLossSupport => visible && profile.goal == GoalType.lose;
+  bool get showLossSupport =>
+      visible &&
+      profile.mode == TargetMode.calculated &&
+      profile.goal == GoalType.lose;
 
   double? get currentKg =>
-      logs.isNotEmpty ? logs.last.weightKg : profile.weightKg;
+      logs.isNotEmpty
+          ? logs.last.weightKg
+          : profile.mode == TargetMode.calculated
+              ? profile.weightKg
+              : null;
 
   double? get startKg =>
-      logs.isNotEmpty ? logs.first.weightKg : profile.weightKg;
+      logs.isNotEmpty
+          ? logs.first.weightKg
+          : profile.mode == TargetMode.calculated
+              ? profile.weightKg
+              : null;
 
   DateTime? get startedAt =>
       logs.isEmpty ? null : JourneyMath.parseDateKey(logs.first.dateKey);
@@ -47,6 +58,18 @@ class WeightSnapshot {
     final current = currentKg;
     if (start == null || current == null) return 0;
     return current - start;
+  }
+
+  GoalType get journeyGoal => profile.goal;
+
+  /// Intended weekly change, including a pace set with a fixed calorie
+  /// number. The current-weight cap is ignored so a later underweight
+  /// floor cannot rewrite a large loss as "maintain".
+  double get journeyPaceKgPerWeek {
+    if (profile.goal == GoalType.maintain) return 0;
+    if (profile.mode == TargetMode.manual) return 0;
+    if (profile.paceKgPerWeek > 0) return profile.paceKgPerWeek;
+    return result?.plannedKgPerWeek ?? 0;
   }
 }
 
@@ -91,7 +114,6 @@ class JourneyMath {
     DailyTargetProfile profile, {
     double? currentWeight,
   }) {
-    if (profile.mode != TargetMode.calculated) return null;
     final next = currentWeight == null
         ? profile
         : profile.copyWith(weightKg: currentWeight);
@@ -128,6 +150,11 @@ class JourneyMath {
     );
   }
 
+  static double muchKg(double startKg) {
+    final byPercent = startKg.abs() * 0.02;
+    return byPercent > 2.5 ? byPercent : 2.5;
+  }
+
   static PaceHint paceHint({
     required GoalType goal,
     required double startKg,
@@ -136,10 +163,24 @@ class JourneyMath {
     required DateTime onDate,
     required double plannedKgPerWeek,
   }) {
+    final drift = currentKg - startKg;
+    if (drift.abs() < 0.35) return PaceHint.holdSteady;
+
+    final much = muchKg(startKg);
+
     if (goal == GoalType.maintain) {
-      final drift = currentKg - startKg;
-      if (drift.abs() < 0.35) return PaceHint.holdSteady;
-      return drift > 0 ? PaceHint.holdUp : PaceHint.holdDown;
+      if (drift.abs() < much) {
+        return drift > 0 ? PaceHint.holdUp : PaceHint.holdDown;
+      }
+      return drift > 0 ? PaceHint.holdUpMuch : PaceHint.holdDownMuch;
+    }
+
+    if (plannedKgPerWeek <= 0) {
+      final towardGoal = goal == GoalType.lose ? -drift : drift;
+      if (towardGoal > 0) {
+        return towardGoal >= much ? PaceHint.aheadMuch : PaceHint.ahead;
+      }
+      return towardGoal.abs() >= much ? PaceHint.behindMuch : PaceHint.behind;
     }
 
     final expected = expectedWeight(
@@ -153,9 +194,22 @@ class JourneyMath {
     final kindGap = goal == GoalType.lose ? gap : -gap;
 
     if (kindGap.abs() < 0.4) return PaceHint.onPace;
-    if (kindGap < 0) return PaceHint.ahead;
-    return PaceHint.behind;
+    if (kindGap < 0) {
+      return kindGap.abs() >= much ? PaceHint.aheadMuch : PaceHint.ahead;
+    }
+    return kindGap >= much ? PaceHint.behindMuch : PaceHint.behind;
   }
 }
 
-enum PaceHint { holdSteady, holdUp, holdDown, onPace, ahead, behind }
+enum PaceHint {
+  holdSteady,
+  holdUp,
+  holdDown,
+  holdUpMuch,
+  holdDownMuch,
+  onPace,
+  ahead,
+  aheadMuch,
+  behind,
+  behindMuch,
+}

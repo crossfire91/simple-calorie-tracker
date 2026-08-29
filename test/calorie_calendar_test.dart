@@ -41,6 +41,25 @@ void main() {
     expect(find.textContaining('2 Mahlzeiten'), findsOneWidget);
     expect(find.textContaining('gewogen'), findsOneWidget);
     expect(find.text('Heute'), findsNothing);
+    expect(find.byKey(const Key('calendar-streak')), findsOneWidget);
+    expect(find.byIcon(Icons.local_fire_department_rounded), findsOneWidget);
+    expect(find.textContaining('in Folge'), findsWidgets);
+    expect(find.text('1 Tag'), findsOneWidget);
+  });
+
+  testWidgets('hides the streak chip when the chain is cold', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        CalorieCalendar(
+          selectedDate: today,
+          kcalBudget: 2200,
+          digests: const {},
+          onDateSelected: (_) {},
+        ),
+      ),
+    );
+
+    expect(find.byKey(const Key('calendar-streak')), findsNothing);
   });
 
   testWidgets('tapping another day reports the date', (tester) async {

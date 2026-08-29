@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import 'package:simple_calorie_tracker/backup/backup_payload.dart';
 
 class CalorieSummaryScreenController{
 
@@ -17,6 +18,8 @@ class CalorieSummaryScreenController{
     String name = '',
     double proteinG = 0,
     bool pinFavorite = false,
+    String? breakdown,
+    String? description,
   }) async {
     return await model.addFood(
       kcalPer100g,
@@ -28,6 +31,34 @@ class CalorieSummaryScreenController{
       name: name,
       proteinG: proteinG,
       pinFavorite: pinFavorite,
+      breakdown: breakdown,
+      description: description,
+    );
+  }
+
+  updateFood({
+    required String id,
+    required int kcalPer100g,
+    required int weightInGrams,
+    required Uint8List imageBytes,
+    required bool didTakeImage,
+    String name = '',
+    double proteinG = 0,
+    bool pinFavorite = false,
+    String? breakdown,
+    String? description,
+  }) async {
+    return await model.updateFood(
+      id: id,
+      kcalPer100g: kcalPer100g,
+      weightInGrams: weightInGrams,
+      imageBytes: imageBytes,
+      didTakeImage: didTakeImage,
+      name: name,
+      proteinG: proteinG,
+      pinFavorite: pinFavorite,
+      breakdown: breakdown,
+      description: description,
     );
   }
 
@@ -79,17 +110,25 @@ class CalorieSummaryScreenController{
     return await model.getFavorites();
   }
 
+  getRecentQuickMeals() async {
+    return await model.getRecentQuickMeals();
+  }
+
   upsertFavorite({
     required String name,
     required int kcalPer100g,
     required int weightInGrams,
     double proteinG = 0,
+    String? breakdown,
+    String? description,
   }) async {
     return await model.upsertFavorite(
       name: name,
       kcalPer100g: kcalPer100g,
       weightInGrams: weightInGrams,
       proteinG: proteinG,
+      breakdown: breakdown,
+      description: description,
     );
   }
 
@@ -103,6 +142,30 @@ class CalorieSummaryScreenController{
 
   syncHomeWidget() async {
     await model.syncHomeWidget();
+  }
+
+  Future<BackupCounts> backupCounts() async {
+    return await model.backupCounts();
+  }
+
+  Future<BackupRecord> backupRecord() async {
+    return await model.backupRecord();
+  }
+
+  Future<void> setBackupIncludePhotos(bool include) async {
+    await model.setBackupIncludePhotos(include);
+  }
+
+  Future<BackupSnapshot> createBackup({required bool includePhotos}) async {
+    return await model.createBackup(includePhotos: includePhotos);
+  }
+
+  Future<void> markBackupSaved(BackupSnapshot snapshot, int bytes) async {
+    await model.markBackupSaved(snapshot, bytes);
+  }
+
+  Future<BackupCounts> restoreBackup(BackupSnapshot snapshot) async {
+    return await model.restoreBackup(snapshot);
   }
 
 }

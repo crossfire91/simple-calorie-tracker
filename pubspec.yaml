@@ -37,18 +37,20 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.6
-  sqflite: ^2.3.0
+  sqflite: 2.4.1
   sqflite_common_ffi_web: ^1.0.0
-  images_picker: ^1.2.11
-  path_provider: ^2.1.1
+  path_provider: 2.1.5
   uuid: ^4.2.2
   carousel_slider: ^5.1.1
   easy_image_viewer: ^1.2.1
   rflutter_alert: ^2.0.7
-  shared_preferences: ^2.2.2
+  shared_preferences: 2.3.5
   http: ^1.2.2
   image_picker: ^1.1.2
   intl: any
+  record: ^6.2.1
+  file_picker: ^8.1.7
+  share_plus: ^10.1.4
 
 dependency_overrides:
   intl: 0.20.2
@@ -63,6 +65,27 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^2.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/icon/app_icon.png
+  adaptive_icon_background: "#07080C"
+  adaptive_icon_foreground: assets/icon/app_icon.png
+  remove_alpha_ios: true
+  web:
+    generate: true
+    image_path: assets/icon/app_icon.png
+    background_color: "#07080C"
+    theme_color: "#2F80ED"
+  windows:
+    generate: true
+    image_path: assets/icon/app_icon.png
+    icon_size: 256
+  macos:
+    generate: true
+    image_path: assets/icon/app_icon.png
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

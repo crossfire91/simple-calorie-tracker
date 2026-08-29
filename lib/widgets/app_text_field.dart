@@ -5,6 +5,8 @@ class AppTextField extends StatelessWidget {
   final TextEditingController controller;
   final String label;
   final String? hint;
+  final String? suffix;
+  final Widget? suffixIcon;
   final IconData? icon;
   final TextInputType keyboardType;
   final ValueChanged<String>? onChanged;
@@ -18,6 +20,8 @@ class AppTextField extends StatelessWidget {
     required this.controller,
     required this.label,
     this.hint,
+    this.suffix,
+    this.suffixIcon,
     this.icon,
     this.keyboardType = TextInputType.number,
     this.onChanged,
@@ -29,11 +33,14 @@ class AppTextField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final lines = obscureText ? 1 : maxLines;
     return TextField(
       controller: controller,
       keyboardType: keyboardType,
       obscureText: obscureText,
-      maxLines: obscureText ? 1 : maxLines,
+      minLines: lines,
+      maxLines: lines,
+      textAlignVertical: TextAlignVertical.center,
       textInputAction: textInputAction,
       onChanged: onChanged,
       onSubmitted: onSubmitted,
@@ -46,12 +53,23 @@ class AppTextField extends StatelessWidget {
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,
+        floatingLabelBehavior: suffix == null
+            ? FloatingLabelBehavior.auto
+            : FloatingLabelBehavior.always,
         prefixIcon: icon == null
             ? null
             : Icon(icon, color: AppColors.textMuted, size: 20),
+        suffixIcon: suffixIcon,
+        suffixText: suffix,
+        suffixStyle: const TextStyle(
+          color: AppColors.textMuted,
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+        ),
         labelStyle: const TextStyle(
           color: AppColors.textMuted,
           fontWeight: FontWeight.w500,
+          fontSize: 13,
         ),
         hintStyle: const TextStyle(color: AppColors.textFaint),
         filled: true,

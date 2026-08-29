@@ -1,3 +1,4 @@
+import 'package:simple_calorie_tracker/nutrition/food_sense.dart';
 import 'package:simple_calorie_tracker/nutrition/models.dart';
 
 class ParsedMealNote {
@@ -14,13 +15,14 @@ ParsedMealNote parseMealNote(String raw) {
 
   int? grams;
   final kg = RegExp(r'(?:^|[,\s])(\d+(?:[.,]\d+)?)\s*kg\b', caseSensitive: false).firstMatch(text);
+  final ml = RegExp(r'(?:^|[,\s])(\d+(?:[.,]\d+)?)\s*ml\b', caseSensitive: false).firstMatch(text);
   final g = RegExp(
     r'(?:^|[,\s])(\d+(?:[.,]\d+)?)\s*(?:g|gr|gram|grams|gramm)\b',
     caseSensitive: false,
   ).firstMatch(text);
   final trailing = RegExp(r'(?:^|[,\s])(\d{2,4})\s*$').firstMatch(text);
 
-  final match = g ?? kg ?? trailing;
+  final match = g ?? ml ?? kg ?? trailing;
   if (match != null) {
     final value = double.tryParse(match.group(1)!.replaceAll(',', '.'));
     if (value != null && value > 0) {
@@ -36,12 +38,45 @@ ParsedMealNote parseMealNote(String raw) {
 DetectedFood detectedFromNote(String raw, {int? knownGrams}) {
   final parsed = parseMealNote(raw);
   final name = parsed.name.isEmpty ? raw.trim() : parsed.name;
-  return DetectedFood(
+  final food = DetectedFood(
     name: name,
     queryEn: name,
-    grams: knownGrams ?? parsed.grams ?? 250,
+    grams: knownGrams ?? parsed.grams ?? _scoopGrams(raw) ?? 250,
     altQueries: _genericFallbacks(name),
   );
+  return food.copyWith(sense: inferFoodSense(food));
+}
+
+/// Split a typed note into menu rows when Gemini is not used.
+List<DetectedFood> splitMealNote(String raw, {int? knownGrams}) {
+  var text = raw.trim();
+  if (text.isEmpty) return const [];
+  text = text.replaceAll(RegExp(r'\bgemacht\s+mit\b', caseSensitive: false), 'mit');
+  final parts = text
+      .split(
+        RegExp(
+          r'\s*(?:,|;|\bund\b|\band\b|\s+mit\s+(?=[^,]{0,40}\d+\s*(?:ml|g|scoops?)))\s*',
+          caseSensitive: false,
+        ),
+      )
+      .map((part) => part.trim())
+      .where((part) => part.isNotEmpty)
+      .toList();
+  if (parts.length <= 1) {
+    return [detectedFromNote(text, knownGrams: knownGrams)];
+  }
+  return [
+    for (final part in parts) detectedFromNote(part),
+  ];
+}
+
+int? _scoopGrams(String raw) {
+  if (RegExp(r'\b(doppelt\w*|double|zwei|2)\b.*\b(scoops?|messl)', caseSensitive: false).hasMatch(raw) ||
+      RegExp(r'\b(scoops?|messl).*\b(doppelt\w*|double|zwei|2)\b', caseSensitive: false).hasMatch(raw)) {
+    return 60;
+  }
+  if (RegExp(r'\b(scoops?|messl[oö]ffel)\b', caseSensitive: false).hasMatch(raw)) return 30;
+  return null;
 }
 
 List<String> _genericFallbacks(String name) {

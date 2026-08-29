@@ -9,6 +9,7 @@ void main() {
       dateKey: '29.8.2026',
       lang: 'de',
       mealCount: 2,
+      streak: 4,
       favorites: const [
         {'id': 'a', 'name': 'Hähnchen', 'kcal': 350},
       ],

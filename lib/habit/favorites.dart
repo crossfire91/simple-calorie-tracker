@@ -8,6 +8,8 @@ class FavoriteMeal {
   final double proteinG;
   final int useCount;
   final int lastUsed;
+  final String breakdown;
+  final String description;
 
   const FavoriteMeal({
     required this.id,
@@ -17,15 +19,21 @@ class FavoriteMeal {
     this.proteinG = 0,
     this.useCount = 1,
     this.lastUsed = 0,
+    this.breakdown = '',
+    this.description = '',
   });
 
   int get kcal => ((kcalPer100g * weightInGrams) / 100).round();
+
+  bool get canLogAgain => weightInGrams > 0 && kcalPer100g > 0;
 
   FavoriteMeal copyWith({
     int? useCount,
     int? lastUsed,
     int? weightInGrams,
     double? proteinG,
+    String? breakdown,
+    String? description,
   }) {
     return FavoriteMeal(
       id: id,
@@ -35,6 +43,8 @@ class FavoriteMeal {
       proteinG: proteinG ?? this.proteinG,
       useCount: useCount ?? this.useCount,
       lastUsed: lastUsed ?? this.lastUsed,
+      breakdown: breakdown ?? this.breakdown,
+      description: description ?? this.description,
     );
   }
 }
@@ -67,6 +77,8 @@ class MealDraft {
   final String name;
   final double proteinG;
   final bool pinFavorite;
+  final String? breakdown;
+  final String? description;
 
   MealDraft({
     required this.kcalPer100g,
@@ -76,7 +88,48 @@ class MealDraft {
     this.name = '',
     this.proteinG = 0,
     this.pinFavorite = false,
+    this.breakdown,
+    this.description,
   });
 
   int get kcal => ((kcalPer100g * weightInGrams) / 100).round();
+}
+
+class QuickMeals {
+  static const limit = 8;
+
+  static List<FavoriteMeal> merge({
+    required List<FavoriteMeal> favorites,
+    required List<FavoriteMeal> recent,
+    int limit = QuickMeals.limit,
+  }) {
+    final recentByName = <String, FavoriteMeal>{};
+    for (final meal in recent) {
+      final key = meal.name.trim().toLowerCase();
+      if (key.isEmpty) continue;
+      recentByName.putIfAbsent(key, () => meal);
+    }
+    final out = <FavoriteMeal>[];
+    final seen = <String>{};
+    for (final meal in [...favorites, ...recent]) {
+      if (!meal.canLogAgain) continue;
+      final key = meal.name.trim().toLowerCase();
+      if (key.isEmpty || !seen.add(key)) continue;
+      var next = meal;
+      if (next.breakdown.trim().isEmpty) {
+        final fromRecent = recentByName[key];
+        if (fromRecent != null && fromRecent.breakdown.trim().isNotEmpty) {
+          next = next.copyWith(
+            breakdown: fromRecent.breakdown,
+            description: fromRecent.description.trim().isNotEmpty
+                ? fromRecent.description
+                : next.description,
+          );
+        }
+      }
+      out.add(next);
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
 }

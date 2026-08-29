@@ -19,23 +19,65 @@ DailyTargetProfile _calculated({
 }
 
 void main() {
-  test('manual target never shows a weight projection', () {
+  test('manual target still shows the weight journey', () {
     final profile = DailyTargetProfile(
       mode: TargetMode.manual,
       manualKcal: 2100,
       weightKg: 80,
     );
+    final result = JourneyMath.projection(profile);
 
-    expect(JourneyMath.projection(profile), isNull);
+    expect(result, isNotNull);
+    expect(result!.targetKcal, 2100);
+    expect(result.plannedKgPerWeek, 0);
     expect(
       WeightSnapshot(
         profile: profile,
-        result: JourneyMath.projection(profile),
+        result: result,
         logs: const [],
         trackedDateKeys: const {},
       ).visible,
+      isTrue,
+    );
+    expect(
+      WeightSnapshot(
+        profile: profile,
+        result: result,
+        logs: const [],
+        trackedDateKeys: const {},
+      ).showLossSupport,
       isFalse,
     );
+    expect(
+      WeightSnapshot(
+        profile: profile,
+        result: result,
+        logs: const [],
+        trackedDateKeys: const {},
+      ).currentKg,
+      isNull,
+    );
+  });
+
+  test('manual snapshot uses logged weight, not a silent profile default', () {
+    final snapshot = WeightSnapshot(
+      profile: DailyTargetProfile(
+        mode: TargetMode.manual,
+        manualKcal: 2100,
+        weightKg: 72,
+      ),
+      result: JourneyMath.projection(
+        DailyTargetProfile(mode: TargetMode.manual, manualKcal: 2100),
+      ),
+      logs: const [
+        WeightEntry(id: 'a', dateKey: '1.8.2026', weightKg: 81.4),
+      ],
+      trackedDateKeys: const {'1.8.2026'},
+    );
+
+    expect(snapshot.visible, isTrue);
+    expect(snapshot.startKg, 81.4);
+    expect(snapshot.currentKg, 81.4);
   });
 
   test('calculated lose target shows weekly loss from current weight', () {
@@ -46,6 +88,90 @@ void main() {
     expect(at80!.plannedKgPerWeek, greaterThan(0.2));
     expect(at75, isNotNull);
     expect(at75!.targetKcal, isNot(at80.targetKcal));
+  });
+
+  test('a zero weekly plan is treated as a hold', () {
+    expect(
+      JourneyMath.paceHint(
+        goal: GoalType.lose,
+        startKg: 80,
+        currentKg: 80.1,
+        startDate: DateTime(2026, 8, 1),
+        onDate: DateTime(2026, 8, 15),
+        plannedKgPerWeek: 0,
+      ),
+      PaceHint.holdSteady,
+    );
+  });
+
+  test('a large drop is not "a bit below start / maintain"', () {
+    expect(
+      JourneyMath.paceHint(
+        goal: GoalType.lose,
+        startKg: 130,
+        currentKg: 40,
+        startDate: DateTime(2026, 1, 1),
+        onDate: DateTime(2026, 8, 29),
+        plannedKgPerWeek: 0,
+      ),
+      PaceHint.aheadMuch,
+    );
+    expect(
+      JourneyMath.paceHint(
+        goal: GoalType.maintain,
+        startKg: 130,
+        currentKg: 40,
+        startDate: DateTime(2026, 1, 1),
+        onDate: DateTime(2026, 8, 29),
+        plannedKgPerWeek: 0,
+      ),
+      PaceHint.holdDownMuch,
+    );
+    expect(
+      JourneyMath.paceHint(
+        goal: GoalType.maintain,
+        startKg: 80,
+        currentKg: 79.4,
+        startDate: DateTime(2026, 8, 1),
+        onDate: DateTime(2026, 8, 15),
+        plannedKgPerWeek: 0,
+      ),
+      PaceHint.holdDown,
+    );
+  });
+
+  test('manual snapshot judges the logged change, not a silent hold', () {
+    final snapshot = WeightSnapshot(
+      profile: DailyTargetProfile(
+        mode: TargetMode.manual,
+        manualKcal: 2100,
+        goal: GoalType.lose,
+      ),
+      result: JourneyMath.projection(
+        DailyTargetProfile(mode: TargetMode.manual, manualKcal: 2100),
+      ),
+      logs: const [
+        WeightEntry(id: 'a', dateKey: '1.1.2026', weightKg: 130),
+        WeightEntry(id: 'b', dateKey: '29.8.2026', weightKg: 40),
+      ],
+      trackedDateKeys: const {'1.1.2026', '29.8.2026'},
+    );
+
+    expect(snapshot.journeyGoal, GoalType.lose);
+    expect(snapshot.journeyPaceKgPerWeek, 0);
+    expect(snapshot.startKg, 130);
+    expect(snapshot.currentKg, 40);
+    expect(
+      JourneyMath.paceHint(
+        goal: snapshot.journeyGoal,
+        startKg: snapshot.startKg!,
+        currentKg: snapshot.currentKg!,
+        startDate: snapshot.startedAt!,
+        onDate: DateTime(2026, 8, 29),
+        plannedKgPerWeek: snapshot.journeyPaceKgPerWeek,
+      ),
+      PaceHint.aheadMuch,
+    );
   });
 
   test('maintain stays a hold even if weight is logged', () {

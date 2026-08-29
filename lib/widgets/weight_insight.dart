@@ -21,7 +21,7 @@ class WeightInsightBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = S.of(context);
     final week = result.plannedKgPerWeek;
-    final holding = week < 0.05 || goal == GoalType.maintain;
+    final holding = goal == GoalType.maintain;
     final gaining = !holding && goal == GoalType.gain;
     final icon = holding
         ? Icons.favorite_rounded

@@ -8,12 +8,16 @@ class FavoriteMealsStrip extends StatelessWidget {
   final List<FavoriteMeal> favorites;
   final ValueChanged<FavoriteMeal> onLog;
   final ValueChanged<FavoriteMeal> onRemove;
+  final bool hasPinned;
+  final Set<String> pinnedIds;
 
   const FavoriteMealsStrip({
     super.key,
     required this.favorites,
     required this.onLog,
     required this.onRemove,
+    this.hasPinned = true,
+    this.pinnedIds = const {},
   });
 
   @override
@@ -26,7 +30,16 @@ class FavoriteMealsStrip extends StatelessWidget {
       children: [
         Row(
           children: [
-            Text(s.yourMoves, style: Theme.of(context).textTheme.labelSmall),
+            Icon(
+              hasPinned ? Icons.bookmark_rounded : Icons.replay_rounded,
+              size: 13,
+              color: hasPinned ? AppColors.mint : AppColors.textFaint,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              hasPinned ? s.yourMoves : s.againThese,
+              style: Theme.of(context).textTheme.labelSmall,
+            ),
             const Spacer(),
             Text(
               s.tapToLog,
@@ -40,7 +53,7 @@ class FavoriteMealsStrip extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         SizedBox(
-          height: 92,
+          height: 96,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: favorites.length,
@@ -49,6 +62,7 @@ class FavoriteMealsStrip extends StatelessWidget {
               final fav = favorites[index];
               return _FavoriteTile(
                 meal: fav,
+                pinned: pinnedIds.contains(fav.id),
                 onTap: () {
                   HapticFeedback.mediumImpact();
                   onLog(fav);
@@ -65,11 +79,13 @@ class FavoriteMealsStrip extends StatelessWidget {
 
 class _FavoriteTile extends StatefulWidget {
   final FavoriteMeal meal;
+  final bool pinned;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
 
   const _FavoriteTile({
     required this.meal,
+    required this.pinned,
     required this.onTap,
     required this.onLongPress,
   });
@@ -83,6 +99,9 @@ class _FavoriteTileState extends State<_FavoriteTile> {
 
   @override
   Widget build(BuildContext context) {
+    final pinned = widget.pinned;
+    final accent = pinned ? AppColors.mint : AppColors.accentSoft;
+
     return GestureDetector(
       onTapDown: (_) => setState(() => _pressed = true),
       onTapUp: (_) => setState(() => _pressed = false),
@@ -90,38 +109,93 @@ class _FavoriteTileState extends State<_FavoriteTile> {
       onTap: widget.onTap,
       onLongPress: widget.onLongPress,
       child: AnimatedScale(
-        scale: _pressed ? 0.94 : 1,
+        scale: _pressed ? 0.96 : 1,
         duration: const Duration(milliseconds: 110),
         child: Container(
-          width: 132,
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+          width: 148,
           decoration: BoxDecoration(
-            gradient: AppColors.gradient,
+            color: AppColors.surface,
             borderRadius: BorderRadius.circular(20),
-            boxShadow: AppColors.glow(AppColors.accent, 0.22),
-            border: Border.all(color: Colors.white.withOpacity(0.18)),
+            border: Border.all(
+              color: pinned ? AppColors.mint.withOpacity(0.28) : AppColors.stroke,
+            ),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          clipBehavior: Clip.antiAlias,
+          child: Stack(
             children: [
-              Text(
-                widget.meal.name,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
-                  height: 1.2,
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: Container(
+                  height: 3,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        accent,
+                        accent.withOpacity(0.2),
+                      ],
+                    ),
+                  ),
                 ),
               ),
-              const Spacer(),
-              Text(
-                '${widget.meal.kcal} kcal',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.88),
-                  fontWeight: FontWeight.w600,
-                  fontSize: 12,
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 14, 12, 11),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 22,
+                          height: 22,
+                          decoration: BoxDecoration(
+                            color: accent.withOpacity(0.14),
+                            borderRadius: BorderRadius.circular(7),
+                          ),
+                          child: Icon(
+                            pinned ? Icons.bookmark_rounded : Icons.replay_rounded,
+                            size: 13,
+                            color: accent,
+                          ),
+                        ),
+                        const SizedBox(width: 7),
+                        Expanded(
+                          child: Text(
+                            widget.meal.name,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: AppColors.text,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                              height: 1.2,
+                              letterSpacing: -0.15,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Spacer(),
+                    Text(
+                      '${widget.meal.kcal} kcal',
+                      style: const TextStyle(
+                        color: AppColors.text,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      '${widget.meal.weightInGrams} g',
+                      style: const TextStyle(
+                        color: AppColors.textMuted,
+                        fontWeight: FontWeight.w500,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],

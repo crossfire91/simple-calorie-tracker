@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:simple_calorie_tracker/l10n/strings.dart';
 import 'package:simple_calorie_tracker/theme/app_colors.dart';
 import 'package:simple_calorie_tracker/widgets/app_button.dart';
+import 'package:simple_calorie_tracker/widgets/app_text_field.dart';
 
 class WeightLogForm extends StatefulWidget {
   final double initialKg;
@@ -112,30 +113,12 @@ class _WeightLogFormState extends State<WeightLogForm> {
             ),
           ),
           const SizedBox(height: 10),
-          TextField(
+          AppTextField(
             controller: controller,
+            label: S.of(context).orTypeIt,
+            suffix: 'kg',
+            icon: Icons.edit_rounded,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            cursorColor: AppColors.accentSoft,
-            style: const TextStyle(
-              color: AppColors.text,
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-            ),
-            decoration: InputDecoration(
-              labelText: S.of(context).orTypeIt,
-              prefixIcon: const Icon(Icons.edit_rounded, color: AppColors.textFaint),
-              labelStyle: const TextStyle(color: AppColors.textMuted),
-              filled: true,
-              fillColor: AppColors.surfaceInput,
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: const BorderSide(color: AppColors.stroke),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: AppColors.accentSoft.withOpacity(0.6)),
-              ),
-            ),
             onChanged: (text) {
               final parsed = double.tryParse(text.replaceAll(',', '.').trim());
               if (parsed == null) return;

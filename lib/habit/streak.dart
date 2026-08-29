@@ -15,11 +15,11 @@ class StreakMath {
     };
   }
 
-  static int currentStreak(
+  static Set<String> currentStreakKeys(
     Set<String> mealDays, {
     DateTime? now,
   }) {
-    if (mealDays.isEmpty) return 0;
+    if (mealDays.isEmpty) return {};
     final today = dayOnly(now ?? DateTime.now());
     final yesterday = today.subtract(const Duration(days: 1));
     DateTime cursor;
@@ -28,15 +28,22 @@ class StreakMath {
     } else if (mealDays.contains(dateKey(yesterday))) {
       cursor = yesterday;
     } else {
-      return 0;
+      return {};
     }
 
-    var count = 0;
+    final keys = <String>{};
     while (mealDays.contains(dateKey(cursor))) {
-      count++;
+      keys.add(dateKey(cursor));
       cursor = cursor.subtract(const Duration(days: 1));
     }
-    return count;
+    return keys;
+  }
+
+  static int currentStreak(
+    Set<String> mealDays, {
+    DateTime? now,
+  }) {
+    return currentStreakKeys(mealDays, now: now).length;
   }
 
   static DayTone tone(DayDigest? digest, int budget) {

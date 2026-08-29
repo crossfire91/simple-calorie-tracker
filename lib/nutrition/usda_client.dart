@@ -1,13 +1,17 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart';
+import 'package:simple_calorie_tracker/nutrition/food_sense.dart';
+import 'package:simple_calorie_tracker/nutrition/known_foods.dart';
 import 'package:simple_calorie_tracker/nutrition/models.dart';
 
 class UsdaClient {
   static const _dataTypes = ['Foundation', 'SR Legacy', 'Survey (FNDDS)', 'Branded'];
 
-  Future<NutritionLookupHit?> searchBest(String query, String apiKey) async {
+  Future<NutritionLookupHit?> searchBest(String query, String apiKey, {FoodSense? sense}) async {
     final hits = await search(query, apiKey);
+    if (sense != null) return pickVerifiedHit(hits, sense);
     if (hits.isEmpty) return null;
     hits.sort((a, b) => b.score.compareTo(a.score));
     return hits.first;
@@ -20,15 +24,22 @@ class UsdaClient {
     final uri = Uri.parse(
       'https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${Uri.encodeQueryComponent(apiKey)}',
     );
-    final response = await http.post(
-      uri,
-      headers: const {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'query': cleaned,
-        'pageSize': 8,
-        'dataType': _dataTypes,
-      }),
-    );
+    late final http.Response response;
+    try {
+      response = await http
+          .post(
+            uri,
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'query': cleaned,
+              'pageSize': 8,
+              'dataType': _dataTypes,
+            }),
+          )
+          .timeout(const Duration(seconds: 10));
+    } catch (_) {
+      return const [];
+    }
     if (response.statusCode >= 400) return const [];
 
     final decoded = jsonDecode(response.body);
@@ -40,7 +51,8 @@ class UsdaClient {
       if (raw is! Map) continue;
       final food = Map<String, dynamic>.from(raw);
       final kcal = _energyKcal(food);
-      if (kcal == null || kcal <= 0 || kcal > 950) continue;
+      if (kcal == null || kcal < 0 || kcal > 950) continue;
+      if (isPlantMilkQuery(cleaned) && kcal > 65) continue;
       final name = (food['description'] ?? '').toString().trim();
       if (name.isEmpty) continue;
       hits.add(
@@ -49,7 +61,7 @@ class UsdaClient {
           kcalPer100g: kcal.round(),
           source: NutritionSource.usda,
           id: food['fdcId']?.toString(),
-          score: _score(name, food['dataType']?.toString() ?? '', cleaned),
+          score: scoreFor(name, food['dataType']?.toString() ?? '', cleaned),
         ),
       );
     }
@@ -61,7 +73,7 @@ class UsdaClient {
     if (label is Map) {
       final calories = label['calories'];
       final value = calories is Map ? calories['value'] : null;
-      if (value is num && value > 0) {
+      if (value is num && value >= 0) {
         final serving = food['servingSize'];
         final unit = (food['servingSizeUnit'] ?? '').toString().toLowerCase();
         if (serving is num && serving > 0 && (unit == 'g' || unit == 'gr' || unit == 'gram')) {
@@ -93,7 +105,8 @@ class UsdaClient {
     return null;
   }
 
-  int _score(String name, String dataType, String query) {
+  @visibleForTesting
+  static int scoreFor(String name, String dataType, String query) {
     final hay = name.toLowerCase();
     final needle = query.toLowerCase();
     var score = 0;
@@ -101,6 +114,23 @@ class UsdaClient {
     if (hay.contains(needle)) score += 18;
     for (final word in needle.split(RegExp(r'\s+')).where((w) => w.length > 2)) {
       if (hay.contains(word)) score += 4;
+    }
+    if (isWaterQuery(needle)) {
+      if (isPlainWaterName(hay)) score += 40;
+      if (isFlavoredWaterName(hay)) score -= 50;
+    }
+    if (isPlantMilkQuery(needle)) {
+      if (!hay.contains('milk') && !hay.contains('beverage') && !hay.contains('drink')) {
+        score -= 40;
+      }
+      if (hay.contains('butter') || hay.contains('flour') || hay.contains('roasted') || hay.contains('nuts')) {
+        score -= 40;
+      }
+      if (!mentionsSweetenedOnly(needle) && hay.contains('unsweetened')) score += 22;
+      if (!mentionsSweetenedOnly(needle) &&
+          (hay.contains('sweetened') || hay.contains('vanilla') || hay.contains('chocolate'))) {
+        score -= 18;
+      }
     }
     switch (dataType) {
       case 'Foundation':

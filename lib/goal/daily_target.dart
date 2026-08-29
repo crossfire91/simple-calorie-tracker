@@ -78,6 +78,7 @@ enum TargetNote {
   manualLow,
   maintain,
   underweightBlocked,
+  loseNoRoom,
   loseCappedDeficit,
   loseCappedFloor,
   loseCappedPace,
@@ -254,6 +255,17 @@ class DailyTargetMath {
           plannedKgPerWeek: 0,
           underweightBlocked: true,
           noteKind: TargetNote.underweightBlocked,
+        );
+      }
+
+      if (tdee <= floor) {
+        return DailyTargetResult(
+          targetKcal: tdee.round(),
+          bmr: resting,
+          tdee: tdee,
+          plannedKgPerWeek: 0,
+          wasCapped: true,
+          noteKind: TargetNote.loseNoRoom,
         );
       }
 

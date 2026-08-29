@@ -75,27 +75,54 @@ class _AppPrimaryButtonState extends State<AppPrimaryButton> {
 class AppGhostButton extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;
+  final IconData? icon;
+  final bool accent;
 
-  const AppGhostButton({super.key, required this.label, this.onPressed});
+  const AppGhostButton({
+    super.key,
+    required this.label,
+    this.onPressed,
+    this.icon,
+    this.accent = false,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final color = accent ? AppColors.accentSoft : AppColors.text;
     return SizedBox(
       width: double.infinity,
       height: 52,
       child: TextButton(
         onPressed: onPressed,
         style: TextButton.styleFrom(
-          foregroundColor: AppColors.text,
+          foregroundColor: color,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
-            side: const BorderSide(color: AppColors.strokeStrong),
+            side: BorderSide(color: accent ? AppColors.accentSoft.withOpacity(0.55) : AppColors.strokeStrong),
           ),
-          backgroundColor: AppColors.surfaceHigh.withOpacity(0.55),
+          backgroundColor: accent
+              ? AppColors.accent.withOpacity(0.16)
+              : AppColors.surfaceHigh.withOpacity(0.55),
         ),
-        child: Text(
-          label,
-          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 18, color: color),
+              const SizedBox(width: 8),
+            ],
+            Flexible(
+              child: Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: color,
+                  fontWeight: accent ? FontWeight.w700 : FontWeight.w600,
+                  fontSize: 15,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

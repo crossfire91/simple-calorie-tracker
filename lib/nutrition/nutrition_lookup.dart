@@ -1,3 +1,5 @@
+import 'package:simple_calorie_tracker/nutrition/food_sense.dart';
+import 'package:simple_calorie_tracker/nutrition/known_foods.dart';
 import 'package:simple_calorie_tracker/nutrition/models.dart';
 import 'package:simple_calorie_tracker/nutrition/open_food_facts_client.dart';
 import 'package:simple_calorie_tracker/nutrition/usda_client.dart';
@@ -26,12 +28,13 @@ class NutritionLookup {
     final missed = <DetectedFood>[];
 
     for (final item in items) {
-      final hit = await _databaseHit(item, usdaKey);
+      final understood = item.copyWith(sense: inferFoodSense(item));
+      final hit = await _databaseHit(understood, usdaKey);
       if (hit == null) {
-        missed.add(item);
+        missed.add(understood);
         continue;
       }
-      grounded.add(_toFood(item, hit));
+      grounded.add(_toFood(understood, hit));
     }
 
     if (missed.isNotEmpty && geminiKey != null && geminiKey.isNotEmpty) {
@@ -77,6 +80,7 @@ class NutritionLookup {
           brandHint: item.brandHint,
           grams: item.grams,
           altQueries: item.altQueries,
+          sense: item.sense,
         ),
         usdaKey,
       );
@@ -84,12 +88,15 @@ class NutritionLookup {
     }
 
     final kcal = hint?.kcalPer100g;
-    if (kcal == null || kcal <= 0 || kcal > 950) return null;
+    if (kcal == null || kcal < 0 || kcal > 950) return null;
+    final typical = typicalPlantMilkKcalPer100g(item);
+    final sane = typical != null && kcal > 65 ? typical : kcal;
+    if (!inferFoodSense(item).acceptsKcal(sane)) return null;
 
     return GroundedFood(
       detected: item,
-      matchedName: hint?.sourceTitle ?? item.name,
-      kcalPer100g: kcal,
+      matchedName: sane == typical ? plantMilkLabel(item) : (hint?.sourceTitle ?? item.name),
+      kcalPer100g: sane,
       source: NutritionSource.web,
       sourceTitle: hint?.sourceTitle,
       sourceUrl: hint?.sourceUrl,
@@ -118,19 +125,58 @@ class NutritionLookup {
   }
 
   Future<NutritionLookupHit?> _databaseHit(DetectedFood item, String usdaKey) async {
+    final known = knownHitFor(item);
+    if (known != null) return known;
+    final sense = inferFoodSense(item);
+
     if (item.brandHint.isNotEmpty) {
-      final branded = await _openFoodFacts.searchBest(
-        [item.brandHint, item.queryEn.isNotEmpty ? item.queryEn : item.name].join(' ').trim(),
+      final branded = _sanePlantMilk(
+        item,
+        await _offHit(
+          [item.brandHint, sense.searchAs.isNotEmpty ? sense.searchAs : item.queryEn].join(' ').trim(),
+          sense,
+        ),
       );
-      if (branded != null) return branded;
+      if (branded != null && sense.accepts(branded)) return branded;
     }
 
-    for (final query in item.searchQueries) {
-      final usda = await _usda.searchBest(query, usdaKey);
-      if (usda != null) return usda;
-      final off = await _openFoodFacts.searchBest(query);
-      if (off != null) return off;
+    for (final query in lookupQueries(item.copyWith(sense: sense))) {
+      final usda = _sanePlantMilk(item, await _usdaHit(query, usdaKey, sense));
+      if (usda != null && sense.accepts(usda)) return usda;
+      final off = _sanePlantMilk(item, await _offHit(query, sense));
+      if (off != null && sense.accepts(off)) return off;
     }
     return null;
+  }
+
+  /// Carton drinks are ~15–60 kcal/100g. 80+ is almost always nuts, butter, or a serving-size bug.
+  NutritionLookupHit? _sanePlantMilk(DetectedFood item, NutritionLookupHit? hit) {
+    if (hit == null) return null;
+    if (!isPlantMilkQuery('${item.queryEn} ${item.name} ${hit.name}')) return hit;
+    if (hit.kcalPer100g <= 65) return hit;
+    final typical = typicalPlantMilkKcalPer100g(item);
+    if (typical == null) return hit;
+    return NutritionLookupHit(
+      name: plantMilkLabel(item),
+      kcalPer100g: typical,
+      source: hit.source,
+      score: hit.score,
+    );
+  }
+
+  Future<NutritionLookupHit?> _offHit(String query, [FoodSense? sense]) async {
+    try {
+      return await _openFoodFacts.searchBest(query, sense: sense);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<NutritionLookupHit?> _usdaHit(String query, String usdaKey, [FoodSense? sense]) async {
+    try {
+      return await _usda.searchBest(query, usdaKey, sense: sense);
+    } catch (_) {
+      return null;
+    }
   }
 }

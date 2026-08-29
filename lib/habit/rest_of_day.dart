@@ -20,6 +20,7 @@ class RestSuggestion {
   final bool fromFavorite;
   final String? favoriteId;
   final int proteinG;
+  final int servings;
 
   const RestSuggestion({
     required this.nameEn,
@@ -28,11 +29,23 @@ class RestSuggestion {
     this.fromFavorite = false,
     this.favoriteId,
     this.proteinG = 0,
+    this.servings = 1,
   });
 
   String label(bool german) => german ? nameDe : nameEn;
 
   bool get canLog => favoriteId != null && favoriteId!.isNotEmpty;
+  int get lineKcal => kcal * servings;
+
+  RestSuggestion withServings(int next) => RestSuggestion(
+        nameEn: nameEn,
+        nameDe: nameDe,
+        kcal: kcal,
+        fromFavorite: fromFavorite,
+        favoriteId: favoriteId,
+        proteinG: proteinG,
+        servings: next,
+      );
 }
 
 class RestOfDayPlan {
@@ -56,30 +69,37 @@ class RestOfDayPlan {
   RestSuggestion? get primary => suggestions.isEmpty ? null : suggestions.first;
   List<RestSuggestion> get tapSuggestions =>
       suggestions.where((item) => item.canLog).toList();
+  int get filledKcal =>
+      suggestions.fold(0, (sum, item) => sum + item.lineKcal);
+  int get leftoverAfterPlan => (remaining - filledKcal).clamp(0, remaining);
+  bool get hasFill => suggestions.isNotEmpty;
+  bool get fromFavorites => suggestions.any((item) => item.fromFavorite);
+
+  bool get namesAPlate {
+    final item = primary;
+    if (item == null) return false;
+    if (mood == CoachMood.dinner || mood == CoachMood.latePlate) {
+      final floor = (remaining * 0.3).round().clamp(120, remaining);
+      return item.kcal >= floor;
+    }
+    return true;
+  }
 }
 
 class RestOfDayMath {
   static const breakfastHour = 11;
   static const eveningHour = 17;
   static const lateHour = 21;
-
-  static const catalog = <RestSuggestion>[
-    RestSuggestion(nameEn: 'an apple', nameDe: 'einen Apfel', kcal: 80, proteinG: 0),
-    RestSuggestion(nameEn: 'Greek yogurt', nameDe: 'griechischen Joghurt', kcal: 130, proteinG: 10),
-    RestSuggestion(nameEn: 'two eggs', nameDe: 'zwei Eier', kcal: 160, proteinG: 13),
-    RestSuggestion(nameEn: 'cottage cheese', nameDe: 'Hüttenkäse', kcal: 140, proteinG: 16),
-    RestSuggestion(nameEn: 'a chicken plate', nameDe: 'einen Hähnchen-Teller', kcal: 380, proteinG: 30),
-    RestSuggestion(nameEn: 'a rice bowl', nameDe: 'eine Reis-Schale', kcal: 450, proteinG: 10),
-    RestSuggestion(nameEn: 'a big salad', nameDe: 'einen großen Salat', kcal: 220, proteinG: 8),
-    RestSuggestion(nameEn: 'oatmeal', nameDe: 'Haferbrei', kcal: 280, proteinG: 8),
-    RestSuggestion(nameEn: 'a banana', nameDe: 'eine Banane', kcal: 100, proteinG: 1),
-    RestSuggestion(nameEn: 'dark chocolate', nameDe: 'ein Stück dunkle Schokolade', kcal: 60, proteinG: 1),
-  ];
+  static const maxLines = 6;
+  static const maxServings = 2;
+  static const minItemKcal = 50;
+  static const stopLeftover = 80;
 
   static RestOfDayPlan plan({
     required double consumed,
     required int budget,
     List<FavoriteMeal> favorites = const [],
+    List<FavoriteMeal> recent = const [],
     List<LoggedBite> meals = const [],
     double? weightKg,
     DateTime? now,
@@ -110,8 +130,6 @@ class RestOfDayMath {
       );
     }
 
-    final proteinLeft = (proteinTarget - proteinGrams).clamp(0, 999);
-    final proteinShort = proteinLeft >= 15 && remaining >= 100;
     final emptyMorning = hour < breakfastHour && meals.isEmpty;
 
     final CoachMood mood;
@@ -121,75 +139,122 @@ class RestOfDayMath {
       mood = CoachMood.lateSip;
     } else if (hour >= lateHour) {
       mood = CoachMood.latePlate;
-    } else if (proteinShort) {
-      mood = CoachMood.proteinPush;
     } else if (hour >= eveningHour) {
       mood = CoachMood.dinner;
     } else {
       mood = CoachMood.nextPlate;
     }
 
-    final mealsLeft = hour < 11 ? 3 : hour < 15 ? 2 : 1;
-    final targetKcal = (remaining / mealsLeft).round();
-    final allowCatalog = !emptyMorning && mood != CoachMood.lateSip;
-    final limit = (mood == CoachMood.nextPlate && !proteinShort) ? 2 : 1;
-
     return RestOfDayPlan(
       remaining: remaining,
       mood: mood,
       proteinGrams: proteinGrams,
       proteinTarget: proteinTarget,
-      suggestions: _pick(
-        remaining: remaining,
-        targetKcal: targetKcal,
-        favorites: favorites,
-        proteinFirst: proteinShort || mood == CoachMood.proteinPush,
-        allowCatalog: allowCatalog,
-        limit: limit,
-      ),
+      suggestions: mood == CoachMood.lateSip
+          ? const []
+          : fillKnown(
+              remaining: remaining,
+              favorites: favorites,
+              recent: recent,
+            ),
     );
   }
 
-  static List<RestSuggestion> _pick({
+  static List<RestSuggestion> fillKnown({
     required int remaining,
-    required int targetKcal,
     required List<FavoriteMeal> favorites,
-    required bool proteinFirst,
-    required bool allowCatalog,
-    required int limit,
+    List<FavoriteMeal> recent = const [],
   }) {
-    final fits = <RestSuggestion>[
-      for (final fav in favorites)
-        if (fav.kcal > 0 && fav.kcal <= remaining)
+    if (remaining < minItemKcal) return const [];
+    final pinned = _pack(
+      remaining: remaining,
+      known: favorites,
+      pinned: true,
+    );
+    var left = remaining - pinned.fold<int>(0, (sum, item) => sum + item.lineKcal);
+    if (left < stopLeftover || pinned.length >= maxLines) return pinned;
+
+    final extra = _pack(
+      remaining: left,
+      known: recent,
+      pinned: false,
+      skipNames: {
+        for (final item in pinned) item.nameEn.trim().toLowerCase(),
+      },
+      usedLines: pinned.length,
+    );
+    return [...pinned, ...extra];
+  }
+
+  static List<RestSuggestion> _pack({
+    required int remaining,
+    required List<FavoriteMeal> known,
+    required bool pinned,
+    Set<String> skipNames = const {},
+    int usedLines = 0,
+  }) {
+    final pool = <FavoriteMeal>[];
+    final seen = {...skipNames};
+    for (final fav in known) {
+      if (!fav.canLogAgain || fav.kcal < minItemKcal) continue;
+      final key = fav.name.trim().toLowerCase();
+      if (key.isEmpty || !seen.add(key)) continue;
+      pool.add(fav);
+    }
+    if (pool.isEmpty) return const [];
+
+    if (pinned) {
+      pool.sort((a, b) {
+        final uses = b.useCount.compareTo(a.useCount);
+        if (uses != 0) return uses;
+        return b.kcal.compareTo(a.kcal);
+      });
+    } else {
+      pool.sort((a, b) => b.kcal.compareTo(a.kcal));
+    }
+
+    final picked = <RestSuggestion>[];
+    var left = remaining;
+    var lines = usedLines;
+
+    bool add(FavoriteMeal fav) {
+      if (fav.kcal > left) return false;
+      final index = picked.indexWhere((item) => item.favoriteId == fav.id);
+      if (index >= 0) {
+        if (picked[index].servings >= maxServings) return false;
+        picked[index] = picked[index].withServings(picked[index].servings + 1);
+      } else {
+        if (lines >= maxLines) return false;
+        lines += 1;
+        picked.add(
           RestSuggestion(
             nameEn: fav.name,
             nameDe: fav.name,
             kcal: fav.kcal,
-            fromFavorite: true,
+            fromFavorite: pinned,
             favoriteId: fav.id,
             proteinG: _proteinFor(fav),
           ),
-      if (allowCatalog)
-        ...catalog.where((item) => item.kcal <= remaining),
-    ];
-
-    fits.sort((a, b) {
-      if (a.fromFavorite != b.fromFavorite) return a.fromFavorite ? -1 : 1;
-      if (proteinFirst) {
-        final protein = b.proteinG.compareTo(a.proteinG);
-        if (protein != 0) return protein;
+        );
       }
-      return (a.kcal - targetKcal).abs().compareTo((b.kcal - targetKcal).abs());
-    });
-
-    final picked = <RestSuggestion>[];
-    final seen = <String>{};
-    for (final item in fits) {
-      final key = '${item.nameEn.toLowerCase()}-${item.kcal}';
-      if (!seen.add(key)) continue;
-      picked.add(item);
-      if (picked.length == limit) break;
+      left -= fav.kcal;
+      return true;
     }
+
+    for (final fav in pool) {
+      if (left < stopLeftover || lines >= maxLines) break;
+      add(fav);
+    }
+
+    var grew = true;
+    while (grew && left >= stopLeftover && lines <= maxLines) {
+      grew = false;
+      for (final fav in pool) {
+        if (left < stopLeftover) break;
+        if (add(fav)) grew = true;
+      }
+    }
+
     return picked;
   }
 

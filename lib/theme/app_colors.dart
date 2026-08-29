@@ -26,6 +26,19 @@ class AppColors {
 
   static const mint = Color(0xFF5EE0C2);
 
+  static const mealSwatches = [
+    accentSoft,
+    mint,
+    Color(0xFF7B8CFF),
+    Color(0xFFFFC46B),
+    Color(0xFFFF8FB3),
+    accent,
+    Color(0xFFB28DFF),
+    Color(0xFF4FD2FF),
+  ];
+
+  static Color mealSwatch(int index) => mealSwatches[index % mealSwatches.length];
+
   static const overlay = Color(0xF205060A);
 
   static const gradient = LinearGradient(

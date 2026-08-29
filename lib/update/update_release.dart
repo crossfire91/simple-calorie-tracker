@@ -27,12 +27,16 @@ class UpdateRelease {
 
   bool get hasApk => apkUrl.startsWith('https://');
 
-  bool isNewerThan(InstalledVersion installed) {
-    if (!hasApk) return false;
+  bool isNewerVersionThan(InstalledVersion installed) {
     if (versionCode > 0 && installed.versionCode > 0) {
       return versionCode > installed.versionCode;
     }
     return compareSemver(versionName, installed.versionName) > 0;
+  }
+
+  bool isNewerThan(InstalledVersion installed) {
+    if (!hasApk) return false;
+    return isNewerVersionThan(installed);
   }
 
   factory UpdateRelease.fromJson(Map<dynamic, dynamic> json) {

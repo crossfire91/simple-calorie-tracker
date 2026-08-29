@@ -26,6 +26,19 @@ Uint8List? decodeMealImageBytes(dynamic raw) {
   return null;
 }
 
+Future<Uint8List?> loadMealImageBytes({
+  String? path,
+  Uint8List? bytes,
+}) async {
+  if (bytes != null && bytes.isNotEmpty) return bytes;
+  if (kIsWeb || path == null || path.isEmpty) return null;
+  try {
+    final file = File(path);
+    if (await file.exists()) return await file.readAsBytes();
+  } catch (_) {}
+  return null;
+}
+
 class MealImage extends StatelessWidget {
   final String? path;
   final Uint8List? bytes;

@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:simple_calorie_tracker/update/update_config.dart';
+import 'package:simple_calorie_tracker/update/update_lookup.dart';
 import 'package:simple_calorie_tracker/update/update_release.dart';
 
 const _channel = MethodChannel('simple_calorie_tracker/app_update');
@@ -41,13 +42,8 @@ Future<UpdateRelease?> check({bool force = false}) async {
   final current = await installed();
   UpdateRelease? found;
   try {
-    final manifest = await _fromManifest();
-    if (manifest != null && manifest.isNewerThan(current)) {
-      found = manifest;
-    } else {
-      final github = await _fromGithub();
-      if (github != null && github.isNewerThan(current)) found = github;
-    }
+    final remote = await fetchNewestRelease();
+    if (remote != null && remote.isNewerThan(current)) found = remote;
   } catch (_) {
     found = null;
   }
@@ -120,41 +116,6 @@ Future<void> installApk(String path) async {
     throw UnsupportedError('Updates are only available on Android.');
   }
   await _channel.invokeMethod('installApk', {'path': path});
-}
-
-Future<UpdateRelease?> _fromManifest() async {
-  final url = UpdateConfig.manifestUrl.trim();
-  if (url.isEmpty) return null;
-  final body = await _get(url);
-  if (body == null) return null;
-  return parseManifest(body);
-}
-
-Future<UpdateRelease?> _fromGithub() async {
-  final repo = UpdateConfig.githubRepo.trim();
-  if (repo.isEmpty || !repo.contains('/')) return null;
-  final body = await _get(
-    'https://api.github.com/repos/$repo/releases/latest',
-    accept: 'application/vnd.github+json',
-  );
-  if (body == null) return null;
-  return parseGithubRelease(body);
-}
-
-Future<String?> _get(String url, {String accept = 'application/json'}) async {
-  final uri = Uri.tryParse(url);
-  if (uri == null || !uri.hasScheme) return null;
-  final response = await http
-      .get(
-        uri,
-        headers: {
-          'User-Agent': UpdateConfig.userAgent,
-          'Accept': accept,
-        },
-      )
-      .timeout(const Duration(seconds: 12));
-  if (response.statusCode >= 400) return null;
-  return response.body;
 }
 
 Future<bool> _shouldAutoCheck() async {

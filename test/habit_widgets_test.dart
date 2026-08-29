@@ -5,9 +5,11 @@ import 'package:simple_calorie_tracker/habit/favorites.dart';
 import 'package:simple_calorie_tracker/habit/micro_goals.dart';
 import 'package:simple_calorie_tracker/l10n/app_lang.dart';
 import 'package:simple_calorie_tracker/theme/app_theme.dart';
+import 'package:simple_calorie_tracker/habit/ring_slices.dart';
 import 'package:simple_calorie_tracker/widgets/calorie_ring.dart';
 import 'package:simple_calorie_tracker/widgets/favorite_meals_strip.dart';
 import 'package:simple_calorie_tracker/widgets/micro_goals_row.dart';
+import 'package:simple_calorie_tracker/widgets/relative_day_chip.dart';
 import 'package:simple_calorie_tracker/widgets/rest_of_day_coach.dart';
 import 'package:simple_calorie_tracker/widgets/tracked_days_strip.dart';
 
@@ -66,7 +68,7 @@ void main() {
       ),
     );
 
-    await tester.tap(find.textContaining('Joghurt ·'));
+    await tester.tap(find.textContaining('Joghurt'));
     expect(logged?.id, '1');
   });
 
@@ -90,7 +92,7 @@ void main() {
       ),
     );
 
-    expect(find.text('KLEINE ZIELE HEUTE'), findsOneWidget);
+    expect(find.text('TAGESZIELE'), findsOneWidget);
     expect(find.text('Frühstück'), findsOneWidget);
     expect(find.text('Protein'), findsOneWidget);
     expect(find.textContaining('24 / 112'), findsOneWidget);
@@ -112,7 +114,7 @@ void main() {
     );
 
     expect(find.text('TAGE MIT EINTRAG'), findsOneWidget);
-    expect(find.textContaining('am Stück'), findsOneWidget);
+    expect(find.textContaining('in Folge'), findsOneWidget);
   });
 
   testWidgets('favorite tile logs on one tap', (tester) async {
@@ -146,6 +148,7 @@ void main() {
           consumed: 800,
           budget: 2200,
           ghostConsumed: 1900,
+          mealKcals: [300, 500],
         ),
       ),
     );
@@ -154,5 +157,77 @@ void main() {
     expect(find.text('1400'), findsOneWidget);
     expect(find.textContaining('GESTERN'), findsOneWidget);
     expect(find.text('800 / 2200'), findsOneWidget);
+  });
+
+  testWidgets('tapping a ring slice names the meal in the center', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        CalorieRing(
+          consumed: 1000,
+          budget: 2000,
+          meals: [
+            RingMeal(name: 'Joghurt', kcal: 500, loggedAt: DateTime(2026, 8, 29, 8, 10)),
+            RingMeal(name: 'Burger', kcal: 500, loggedAt: DateTime(2026, 8, 29, 13)),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('1000'), findsOneWidget);
+    expect(find.text('Joghurt'), findsNothing);
+
+    final center = tester.getCenter(find.byType(CalorieRing));
+    await tester.tapAt(center + const Offset(70, -36));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Joghurt'), findsOneWidget);
+    expect(find.text('500'), findsOneWidget);
+    expect(find.textContaining('08:10'), findsOneWidget);
+
+    await tester.tapAt(center);
+    await tester.pumpAndSettle();
+    expect(find.text('Joghurt'), findsNothing);
+    expect(find.text('1000'), findsOneWidget);
+  });
+
+  testWidgets('tapping the leftover names how much is still open', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        CalorieRing(
+          consumed: 1000,
+          budget: 2000,
+          meals: const [
+            RingMeal(name: 'Joghurt', kcal: 500),
+            RingMeal(name: 'Burger', kcal: 500),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final center = tester.getCenter(find.byType(CalorieRing));
+    await tester.tapAt(center + const Offset(-70, 0));
+    await tester.pumpAndSettle();
+
+    expect(find.text('NOCH OFFEN'), findsOneWidget);
+    expect(find.text('Joghurt'), findsNothing);
+  });
+
+  testWidgets('relative day chip names today and days ago in German', (tester) async {
+    await tester.pumpWidget(
+      _wrap(RelativeDayChip(date: DateTime.now())),
+    );
+    expect(find.text('Heute'), findsOneWidget);
+
+    await tester.pumpWidget(
+      _wrap(RelativeDayChip(date: DateTime.now().subtract(const Duration(days: 2)))),
+    );
+    expect(find.text('Vorgestern'), findsOneWidget);
+
+    await tester.pumpWidget(
+      _wrap(RelativeDayChip(date: DateTime.now().subtract(const Duration(days: 5)))),
+    );
+    expect(find.text('Vor 5 Tagen'), findsOneWidget);
   });
 }

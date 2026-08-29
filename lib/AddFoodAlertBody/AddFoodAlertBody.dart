@@ -4,8 +4,13 @@ import 'package:image_picker/image_picker.dart';
 import 'package:simple_calorie_tracker/habit/favorites.dart';
 import 'package:simple_calorie_tracker/habit/protein.dart';
 import 'package:simple_calorie_tracker/l10n/strings.dart';
+import 'package:simple_calorie_tracker/nutrition/api_keys.dart';
 import 'package:simple_calorie_tracker/nutrition/models.dart';
+import 'package:simple_calorie_tracker/nutrition/clarify.dart';
+import 'package:simple_calorie_tracker/nutrition/meal_title.dart';
 import 'package:simple_calorie_tracker/nutrition/photo_calorie_service.dart';
+import 'package:simple_calorie_tracker/nutrition/text_meal_parser.dart';
+import 'package:simple_calorie_tracker/nutrition/voice_note_recorder.dart';
 import 'package:simple_calorie_tracker/theme/app_colors.dart';
 import 'package:simple_calorie_tracker/widgets/app_button.dart';
 import 'package:simple_calorie_tracker/widgets/app_text_field.dart';
@@ -13,17 +18,39 @@ import 'package:simple_calorie_tracker/widgets/app_text_field.dart';
 class AddFoodAlertBody extends StatefulWidget {
   final Future<void> Function(MealDraft draft) onAddFood;
   final bool addServingMode;
+  final bool editMode;
   final int? kcalPer100gOverride;
   final bool startWithCamera;
   final String? initialName;
+  final int? initialKcalPer100g;
+  final int? initialGrams;
+  final Uint8List? initialImage;
+  final MealEstimate? initialEstimate;
+  final String? initialDescription;
+  final List<FavoriteMeal> quickMeals;
+  final ValueChanged<FavoriteMeal>? onPickQuick;
+  final Future<Uint8List?> Function(FavoriteMeal meal)? loadPhotoForQuick;
+  final bool estimateUnlocked;
+  final Future<void> Function()? onUnlockEstimate;
 
   const AddFoodAlertBody({
     super.key,
     required this.onAddFood,
     this.addServingMode = false,
+    this.editMode = false,
     this.kcalPer100gOverride,
     this.startWithCamera = false,
     this.initialName,
+    this.initialKcalPer100g,
+    this.initialGrams,
+    this.initialImage,
+    this.initialEstimate,
+    this.initialDescription,
+    this.quickMeals = const [],
+    this.onPickQuick,
+    this.loadPhotoForQuick,
+    this.estimateUnlocked = false,
+    this.onUnlockEstimate,
   });
 
   @override
@@ -40,13 +67,35 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
   bool _analyzing = false;
   MealEstimate? _estimate;
   bool _pinFavorite = false;
+  bool _estimateUnlocked = false;
+  bool _clarificationUsed = false;
+  String? _clarificationNote;
+  int _estimateRevision = 0;
+  bool _listening = false;
+  bool _imageChanged = false;
+  bool _manualMenu = false;
+  String? _originalNote;
+  bool _showOriginal = false;
   final _photoCalories = PhotoCalorieService();
+  final _voice = VoiceNoteRecorder();
 
   @override
   void initState() {
     super.initState();
-    if (widget.initialName != null && widget.initialName!.isNotEmpty) {
-      noteController.text = widget.initialName!;
+    _estimateUnlocked = widget.estimateUnlocked;
+    _applyDraft(
+      name: widget.initialName,
+      kcalPer100g: widget.initialKcalPer100g,
+      grams: widget.initialGrams,
+      image: widget.initialImage,
+    );
+    final savedNote = widget.initialDescription?.trim();
+    if (savedNote != null && savedNote.isNotEmpty) {
+      _originalNote = savedNote;
+    }
+    if (widget.initialEstimate != null) {
+      _estimate = widget.initialEstimate!.copyWith(clearClarification: true);
+      _clarificationUsed = true;
     }
     if (widget.startWithCamera) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -54,6 +103,14 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
           _pick(kIsWeb ? ImageSource.gallery : ImageSource.camera);
         }
       });
+    }
+  }
+
+  @override
+  void didUpdateWidget(AddFoodAlertBody oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.estimateUnlocked != widget.estimateUnlocked) {
+      _estimateUnlocked = widget.estimateUnlocked;
     }
   }
 
@@ -66,22 +123,48 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
       );
       if (file == null) return;
       imageOfFood = await file.readAsBytes();
-      _estimate = null;
-      _error = null;
-      _status = null;
+      _imageChanged = true;
+      if (!widget.editMode) {
+        _estimate = null;
+        _manualMenu = false;
+        _error = null;
+        _status = null;
+        _clarificationUsed = false;
+        _clarificationNote = null;
+      }
       setState(() {});
     } catch (_) {
       setState(() => _error = S.of(context).couldNotOpenPhoto);
     }
   }
 
-  Future<void> _estimateMeal() async {
+  Future<void> _unlockEstimate() async {
+    await widget.onUnlockEstimate?.call();
+    if (!mounted) return;
+    final unlocked = await NutritionApiKeys.hasGemini();
+    if (!mounted) return;
+    setState(() => _estimateUnlocked = unlocked);
+  }
+
+  Future<void> _estimateMeal({bool fresh = true}) async {
+    if (!_estimateUnlocked) {
+      await _unlockEstimate();
+      return;
+    }
     final bytes = imageOfFood;
     final hasPhoto = bytes != null && bytes.isNotEmpty;
-    final note = noteController.text.trim();
+    final note = _lookupNote;
+    if (_listening) {
+      await _toggleVoice();
+      return;
+    }
     if (!hasPhoto && note.isEmpty) {
       setState(() => _error = S.of(context).estimateNeedsInput);
       return;
+    }
+    if (fresh) {
+      _clarificationUsed = false;
+      _clarificationNote = null;
     }
 
     setState(() {
@@ -95,20 +178,95 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
               bytes,
               knownGrams: _knownGrams,
               note: note,
+              extraContext: _clarificationNote,
             )
           : await _photoCalories.estimateFromNote(
               note,
               knownGrams: _knownGrams,
+              extraContext: _clarificationNote,
             );
       if (!mounted) return;
+      _manualMenu = false;
       _applyEstimate(estimate);
     } catch (error) {
       if (!mounted) return;
       _estimate = null;
+      _manualMenu = false;
       _error = S.of(context).lookupError(error.toString());
       _status = null;
     } finally {
       if (mounted) setState(() => _analyzing = false);
+    }
+  }
+
+  void _applyDraft({
+    String? name,
+    int? kcalPer100g,
+    int? grams,
+    Uint8List? image,
+  }) {
+    if (name != null && name.isNotEmpty) {
+      noteController.text = name;
+    }
+    if (kcalPer100g != null && kcalPer100g > 0) {
+      kcalPer100gController.text = kcalPer100g.toString();
+    }
+    if (grams != null && grams > 0) {
+      foodWeightInGrams.text = grams.toString();
+    }
+    if (image != null && image.isNotEmpty) {
+      imageOfFood = image;
+    }
+  }
+
+  Future<void> _applyFavorite(FavoriteMeal meal) async {
+    _applyDraft(
+      name: meal.name,
+      kcalPer100g: meal.kcalPer100g,
+      grams: meal.weightInGrams,
+    );
+    _error = null;
+    _status = null;
+    _clarificationNote = null;
+    _showOriginal = false;
+    final estimate = MealEstimate.decodeForGrams(meal.breakdown, meal.weightInGrams);
+    _estimate = estimate?.copyWith(clearClarification: true);
+    _manualMenu = false;
+    _clarificationUsed = estimate != null;
+    if (estimate != null) _estimateRevision++;
+    final note = meal.description.trim();
+    _originalNote = note.isEmpty ? null : note;
+    widget.onPickQuick?.call(meal);
+    setState(() {});
+    final photo = await widget.loadPhotoForQuick?.call(meal);
+    if (!mounted || photo == null || photo.isEmpty) return;
+    setState(() => imageOfFood = photo);
+  }
+
+  String get _lookupNote {
+    final typed = noteController.text.trim();
+    if (typed.length > mealTitleMaxChars) return typed;
+    final original = _originalNote?.trim() ?? '';
+    if (original.isNotEmpty) return original;
+    return typed;
+  }
+
+  void _applyShortTitle(MealEstimate estimate) {
+    final source = _lookupNote;
+    final title = summarizeMealTitle(
+      note: source,
+      modelTitle: estimate.mealName,
+      itemNames: [
+        ...estimate.items.map((item) => item.detected.name),
+        ...estimate.unmatchedItems.map((item) => item.name),
+      ],
+    );
+    final original = originalMealNote(note: source, title: title);
+    if (original != null) {
+      _originalNote = original;
+      noteController.text = title;
+    } else if (noteController.text.trim().isEmpty && title.isNotEmpty) {
+      noteController.text = title;
     }
   }
 
@@ -118,19 +276,47 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
     return value;
   }
 
+  Future<void> _answerClarification(String option) async {
+    final question = _estimate?.clarification;
+    if (question == null || _analyzing) return;
+    _clarificationUsed = true;
+    final local = applyClarification(
+      estimate: _estimate!,
+      question: question,
+      option: option,
+      strings: S.of(context),
+    );
+    if (local != null) {
+      _applyEstimate(local);
+      setState(() {});
+      return;
+    }
+    _clarificationNote = '${question.question} → $option';
+    await _estimateMeal(fresh: false);
+  }
+
+  void _skipClarification() {
+    setState(() {
+      _clarificationUsed = true;
+      _estimate = _estimate?.copyWith(clearClarification: true);
+    });
+  }
+
   void _applyEstimate(MealEstimate estimate) {
-    _estimate = estimate;
-    if (_knownGrams == null && estimate.totalGrams > 0) {
-      foodWeightInGrams.text = estimate.totalGrams.toString();
-    }
-    if (!widget.addServingMode) {
-      if (estimate.items.isNotEmpty) {
-        kcalPer100gController.text = estimate.kcalPer100g.toString();
-      }
-    }
-    if (noteController.text.trim().isEmpty) {
-      noteController.text = estimate.mealName;
-    }
+    final clarification = suggestClarification(
+      note: _lookupNote,
+      estimate: estimate,
+      strings: S.of(context),
+      fromModel: estimate.clarification,
+      alreadyAnswered: _clarificationUsed,
+    );
+    _estimateRevision++;
+    _estimate = estimate.copyWith(
+      clarification: clarification,
+      clearClarification: clarification == null,
+    );
+    _syncTotalsFromEstimate(_estimate!, fillGramsIfEmpty: true);
+    _applyShortTitle(estimate);
     final s = S.of(context);
     if (estimate.items.isEmpty) {
       _status = null;
@@ -138,10 +324,10 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
           ? s.nothingToLookUp
           : s.noMatchFor(estimate.unmatched.join(', '));
     } else if (estimate.unmatched.isEmpty) {
-      _status = '${estimate.mealName} · ${estimate.sourcesLabel}';
-      _error = estimate.hasWebSource ? s.webFallbackNote : null;
+      _status = estimate.mealName;
+      _error = null;
     } else {
-      _status = '${estimate.mealName} · ${estimate.sourcesLabel}';
+      _status = estimate.mealName;
       _error = s.noMatchEnergyOnly(estimate.unmatched.join(', '));
     }
   }
@@ -151,14 +337,152 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
     kcalPer100gController.dispose();
     foodWeightInGrams.dispose();
     noteController.dispose();
+    _voice.dispose();
     super.dispose();
+  }
+
+  void _syncTotalsFromEstimate(MealEstimate estimate, {required bool fillGramsIfEmpty}) {
+    if (estimate.totalGrams > 0 && (!fillGramsIfEmpty || _knownGrams == null)) {
+      foodWeightInGrams.text = estimate.totalGrams.toString();
+    }
+    if (!widget.addServingMode && estimate.items.isNotEmpty) {
+      kcalPer100gController.text = estimate.kcalPer100g.toString();
+    }
+  }
+
+  Future<void> _toggleVoice() async {
+    if (_analyzing) return;
+    if (!_estimateUnlocked) {
+      await _unlockEstimate();
+      if (!_estimateUnlocked) return;
+    }
+    if (_listening) {
+      setState(() {
+        _listening = false;
+        _analyzing = true;
+        _error = null;
+        _status = S.of(context).lookingThatUp;
+      });
+      try {
+        final clip = await _voice.stop();
+        if (!mounted) return;
+        if (clip == null) {
+          setState(() {
+            _analyzing = false;
+            _error = S.of(context).couldNotRecord;
+            _status = null;
+          });
+          return;
+        }
+        final result = await _photoCalories.estimateFromAudio(
+          clip.bytes,
+          mimeType: clip.mimeType,
+          knownGrams: _knownGrams,
+          extraContext: _clarificationNote,
+        );
+        if (!mounted) return;
+        if (result.transcript.isNotEmpty) {
+          noteController.text = result.transcript;
+        }
+        _manualMenu = false;
+        _applyEstimate(result.estimate);
+      } catch (error) {
+        if (!mounted) return;
+        _estimate = null;
+        _manualMenu = false;
+        _error = S.of(context).lookupError(error.toString());
+        _status = null;
+      } finally {
+        if (mounted) setState(() => _analyzing = false);
+      }
+      return;
+    }
+
+    try {
+      final started = await _voice.start();
+      if (!mounted) return;
+      if (!started) {
+        setState(() => _error = S.of(context).couldNotRecord);
+        return;
+      }
+      setState(() {
+        _listening = true;
+        _error = null;
+        _status = S.of(context).listening;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _error = S.of(context).couldNotRecord);
+    }
+  }
+
+  void _openManualMenu() {
+    final note = _lookupNote;
+    final seeded = splitMealNote(note);
+    final items = seeded.isEmpty
+        ? [
+            DetectedFood(
+              name: note.isEmpty ? 'Item' : note,
+              queryEn: note,
+              grams: _knownGrams ?? 100,
+            ),
+          ]
+        : seeded;
+    _manualMenu = true;
+    _applyEstimate(
+      MealEstimate(
+        mealName: noteController.text.trim().isNotEmpty ? noteController.text.trim() : items.first.name,
+        unmatchedItems: items,
+      ),
+    );
+    setState(() {});
+  }
+
+  Future<void> _lookupMenu() async {
+    final estimate = _estimate;
+    if (estimate == null || _analyzing) return;
+    final items = estimate.menuItems;
+    if (items.isEmpty) return;
+    setState(() {
+      _analyzing = true;
+      _error = null;
+      _status = S.of(context).lookingThatUp;
+    });
+    try {
+      final next = await _photoCalories.groundItems(
+        mealName: estimate.mealName,
+        items: items,
+        knownGrams: _knownGrams,
+      );
+      if (!mounted) return;
+      _applyEstimate(next);
+    } catch (error) {
+      if (!mounted) return;
+      _error = S.of(context).lookupError(error.toString());
+    } finally {
+      if (mounted) setState(() => _analyzing = false);
+    }
+  }
+
+  void _onEstimateEdited(MealEstimate next) {
+    final structureChanged = next.items.length != _estimate!.items.length ||
+        next.unmatchedItems.length != _estimate!.unmatchedItems.length;
+    setState(() {
+      if (structureChanged) _estimateRevision++;
+      _estimate = next;
+      _syncTotalsFromEstimate(next, fillGramsIfEmpty: false);
+      if (next.items.isNotEmpty) {
+        _error = next.unmatched.isEmpty ? null : S.of(context).noMatchEnergyOnly(next.unmatched.join(', '));
+        _status = next.mealName;
+      }
+    });
   }
 
   int? get _plateKcal {
     final grams = int.tryParse(foodWeightInGrams.text.trim());
     final per100 = widget.kcalPer100gOverride ??
         int.tryParse(kcalPer100gController.text.trim());
-    if (grams == null || grams <= 0 || per100 == null || per100 <= 0) return null;
+    if (grams == null || grams <= 0 || per100 == null || per100 < 0) return null;
     return ((per100 * grams) / 100).round();
   }
 
@@ -173,19 +497,32 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
     final per100 = widget.kcalPer100gOverride ??
         int.parse(kcalPer100gController.text);
     final grams = int.parse(foodWeightInGrams.text);
-    final name = noteController.text.trim().isEmpty
-        ? (_estimate?.mealName ?? '')
-        : noteController.text.trim();
+    final typed = noteController.text.trim();
+    final source = _lookupNote;
+    final title = typed.isNotEmpty && typed.length <= mealTitleMaxChars
+        ? typed
+        : summarizeMealTitle(
+            note: source,
+            modelTitle: _estimate?.mealName,
+            itemNames: [
+              ...?_estimate?.items.map((item) => item.detected.name),
+              ...?_estimate?.unmatchedItems.map((item) => item.name),
+            ],
+          );
+    final name = title.isNotEmpty ? title : typed;
+    final original = originalMealNote(note: source, title: name);
     final kcal = (per100 * grams) / 100;
     widget.onAddFood(
       MealDraft(
         kcalPer100g: per100,
         weightInGrams: grams,
         imageBytes: imageOfFood ?? Uint8List(0),
-        didTakeImage: imageOfFood != null,
+        didTakeImage: _imageChanged && imageOfFood != null,
         name: name,
         proteinG: ProteinMath.estimateGrams(name: name, kcal: kcal),
         pinFavorite: _pinFavorite && name.isNotEmpty,
+        breakdown: _estimate?.encode(),
+        description: original,
       ),
     );
   }
@@ -196,13 +533,84 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
+        if (!widget.addServingMode && !widget.editMode && widget.quickMeals.isNotEmpty) ...[
+          SizedBox(
+            height: 36,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: widget.quickMeals.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemBuilder: (context, index) {
+                final meal = widget.quickMeals[index];
+                return GestureDetector(
+                  onTap: () => _applyFavorite(meal),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceHigh,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.stroke),
+                    ),
+                    child: Text(
+                      meal.name,
+                      style: const TextStyle(
+                        color: AppColors.text,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        if (!widget.addServingMode) ...[
+          AppTextField(
+            controller: noteController,
+            label: _originalNote == null ? s.whatIsIt : s.mealTitle,
+            hint: _originalNote == null ? s.whatIsItHint : s.mealTitleHint,
+            icon: Icons.edit_note_rounded,
+            keyboardType: TextInputType.text,
+            textInputAction: TextInputAction.next,
+            suffixIcon: IconButton(
+              tooltip: _listening ? s.listeningShort : s.whatIsIt,
+              onPressed: _analyzing ? null : _toggleVoice,
+              icon: Icon(
+                _listening ? Icons.stop_circle_rounded : Icons.mic_none_rounded,
+                color: _listening ? AppColors.coral : AppColors.accentSoft,
+              ),
+            ),
+          ),
+          if (_originalNote != null) ...[
+            const SizedBox(height: 8),
+            _OriginalNoteFold(
+              label: s.originalNote,
+              text: _originalNote!,
+              open: _showOriginal,
+              onToggle: () => setState(() => _showOriginal = !_showOriginal),
+            ),
+          ],
+          const SizedBox(height: 12),
+        ],
+        if (!widget.addServingMode && _estimate == null) ...[
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: _analyzing ? null : _openManualMenu,
+              icon: const Icon(Icons.playlist_add_rounded, size: 18),
+              label: Text(s.buildMenu),
+            ),
+          ),
+        ],
         Row(
           children: [
             Expanded(
               child: AppTextField(
                 controller: foodWeightInGrams,
                 label: s.weight,
-                hint: s.gramsHint,
+                suffix: s.gramsHint,
                 icon: Icons.scale_rounded,
               ),
             ),
@@ -212,7 +620,7 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
                 child: AppTextField(
                   controller: kcalPer100gController,
                   label: s.energy,
-                  hint: s.kcalPer100g,
+                  suffix: s.kcalPer100g,
                   icon: Icons.local_fire_department_rounded,
                 ),
               ),
@@ -241,22 +649,25 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
         ],
         if (_estimate != null) ...[
           const SizedBox(height: 12),
-          _EstimateBreakdown(estimate: _estimate!),
-        ],
-        if (!widget.addServingMode) ...[
-          const SizedBox(height: 12),
-          AppTextField(
-            controller: noteController,
-            label: s.whatIsIt,
-            hint: s.whatIsItHint,
-            icon: Icons.edit_note_rounded,
-            keyboardType: TextInputType.text,
-            maxLines: 2,
-            textInputAction: TextInputAction.done,
-            onSubmitted: (_) {
-              if (!_analyzing) _estimateMeal();
-            },
+          _EstimateBreakdown(
+            estimate: _estimate!,
+            revision: _estimateRevision,
+            enabled: !_analyzing,
+            manual: _manualMenu,
+            onChanged: _onEstimateEdited,
+            onLookup: _lookupMenu,
+            onAdd: () => _onEstimateEdited(_estimate!.addUnmatched()),
           ),
+          if (_estimate!.clarification != null) ...[
+            const SizedBox(height: 10),
+            _ClarificationCard(
+              question: _estimate!.clarification!,
+              busy: _analyzing,
+              skipLabel: s.looksFine,
+              onPick: _answerClarification,
+              onSkip: _skipClarification,
+            ),
+          ],
         ],
         const SizedBox(height: 14),
         GestureDetector(
@@ -315,8 +726,14 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
                               ? null
                               : () => setState(() {
                                     imageOfFood = null;
-                                    _estimate = null;
-                                    _status = null;
+                                    _imageChanged = true;
+                                    if (!widget.editMode) {
+                                      _estimate = null;
+                                      _manualMenu = false;
+                                      _status = null;
+                                      _clarificationUsed = false;
+                                      _clarificationNote = null;
+                                    }
                                   }),
                           child: Container(
                             margin: const EdgeInsets.all(10),
@@ -364,16 +781,22 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
               const SizedBox(width: 10),
               Expanded(
                 child: AppGhostButton(
-                  label: _analyzing
-                      ? s.working
-                      : (_estimate == null ? s.estimatePlate : s.reEstimate),
-                  onPressed: _analyzing ? null : _estimateMeal,
+                  accent: true,
+                  icon: _estimate == null ? Icons.auto_awesome_rounded : Icons.refresh_rounded,
+                  label: !_estimateUnlocked
+                      ? s.unlockEstimate
+                      : _analyzing
+                          ? s.working
+                          : (_estimate == null ? s.estimatePlate : s.reEstimate),
+                  onPressed: _analyzing
+                      ? null
+                      : (_estimateUnlocked ? () => _estimateMeal() : _unlockEstimate),
                 ),
               ),
             ],
           ],
         ),
-        if (!widget.addServingMode) ...[
+        if (!widget.addServingMode && !widget.editMode) ...[
           const SizedBox(height: 12),
           GestureDetector(
             onTap: () => setState(() => _pinFavorite = !_pinFavorite),
@@ -403,7 +826,9 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
         AppPrimaryButton(
           label: widget.addServingMode
               ? s.addServing
-              : (_plateKcal != null ? s.logThisPlate(_plateKcal!) : s.logMeal),
+              : widget.editMode
+                  ? (_plateKcal != null ? s.saveThisPlate(_plateKcal!) : s.saveChanges)
+                  : (_plateKcal != null ? s.logThisPlate(_plateKcal!) : s.logMeal),
           icon: Icons.check_rounded,
           onPressed: _analyzing ? null : _submit,
         ),
@@ -412,13 +837,264 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
   }
 }
 
-class _EstimateBreakdown extends StatelessWidget {
-  final MealEstimate estimate;
+class _OriginalNoteFold extends StatelessWidget {
+  final String label;
+  final String text;
+  final bool open;
+  final VoidCallback onToggle;
 
-  const _EstimateBreakdown({required this.estimate});
+  const _OriginalNoteFold({
+    required this.label,
+    required this.text,
+    required this.open,
+    required this.onToggle,
+  });
 
   @override
   Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surfaceHigh.withValues(alpha: 0.55),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onToggle,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    open ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+                    size: 18,
+                    color: AppColors.textMuted,
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: const TextStyle(
+                        color: AppColors.textMuted,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (open) ...[
+                const SizedBox(height: 6),
+                Text(
+                  text,
+                  style: const TextStyle(
+                    color: AppColors.text,
+                    fontSize: 13,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ClarificationCard extends StatelessWidget {
+  final ClarificationQuestion question;
+  final bool busy;
+  final String skipLabel;
+  final ValueChanged<String> onPick;
+  final VoidCallback onSkip;
+
+  const _ClarificationCard({
+    required this.question,
+    required this.busy,
+    required this.skipLabel,
+    required this.onPick,
+    required this.onSkip,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceHigh.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.strokeStrong),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            question.question,
+            style: const TextStyle(
+              color: AppColors.text,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              height: 1.3,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final option in question.options)
+                GestureDetector(
+                  onTap: busy ? null : () => onPick(option),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceInput,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.strokeStrong),
+                    ),
+                    child: Text(
+                      option,
+                      style: const TextStyle(
+                        color: AppColors.text,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ),
+              GestureDetector(
+                onTap: busy ? null : onSkip,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.stroke),
+                  ),
+                  child: Text(
+                    skipLabel,
+                    style: const TextStyle(
+                      color: AppColors.textMuted,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EstimateBreakdown extends StatefulWidget {
+  final MealEstimate estimate;
+  final int revision;
+  final bool enabled;
+  final bool manual;
+  final ValueChanged<MealEstimate> onChanged;
+  final VoidCallback? onLookup;
+  final VoidCallback? onAdd;
+
+  const _EstimateBreakdown({
+    required this.estimate,
+    required this.revision,
+    required this.enabled,
+    required this.manual,
+    required this.onChanged,
+    this.onLookup,
+    this.onAdd,
+  });
+
+  @override
+  State<_EstimateBreakdown> createState() => _EstimateBreakdownState();
+}
+
+class _EstimateBreakdownState extends State<_EstimateBreakdown> {
+  final _grams = <TextEditingController>[];
+  final _kcals = <TextEditingController>[];
+  final _names = <TextEditingController>[];
+
+  MealEstimate get estimate => widget.estimate;
+
+  @override
+  void initState() {
+    super.initState();
+    _rebuildControllers();
+  }
+
+  @override
+  void didUpdateWidget(covariant _EstimateBreakdown oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.revision != widget.revision) {
+      _rebuildControllers();
+    }
+  }
+
+  @override
+  void dispose() {
+    _disposeControllers();
+    super.dispose();
+  }
+
+  void _disposeControllers() {
+    for (final controller in [..._grams, ..._kcals, ..._names]) {
+      controller.dispose();
+    }
+    _grams.clear();
+    _kcals.clear();
+    _names.clear();
+  }
+
+  void _rebuildControllers() {
+    _disposeControllers();
+    for (final item in estimate.items) {
+      _names.add(TextEditingController(text: item.detected.name));
+      _grams.add(TextEditingController(text: item.grams.toString()));
+      _kcals.add(TextEditingController(text: item.kcalPer100g.toString()));
+    }
+    for (final item in estimate.unmatchedItems) {
+      _names.add(TextEditingController(text: item.name));
+      _grams.add(TextEditingController(text: item.grams.toString()));
+      _kcals.add(TextEditingController(text: '0'));
+    }
+  }
+
+  void _editName(int index, {required bool unmatched}) {
+    final name = _names[index].text.trim();
+    if (name.isEmpty) return;
+    final local = unmatched ? index - estimate.items.length : index;
+    widget.onChanged(estimate.renameMenuLine(local, name, unmatched: unmatched));
+  }
+
+  void _editGrams(int index, {required bool unmatched}) {
+    final grams = int.tryParse(_grams[index].text.trim());
+    if (grams == null || grams <= 0) return;
+    final local = unmatched ? index - estimate.items.length : index;
+    widget.onChanged(
+      unmatched
+          ? estimate.replaceUnmatched(local, grams: grams)
+          : estimate.replaceGrounded(local, grams: grams),
+    );
+  }
+
+  void _editKcalPer100g(int index, {required bool unmatched}) {
+    final per100 = int.tryParse(_kcals[index].text.trim());
+    if (per100 == null || per100 < 0) return;
+    final local = unmatched ? index - estimate.items.length : index;
+    widget.onChanged(
+      unmatched
+          ? estimate.replaceUnmatched(local, kcalPer100g: per100)
+          : estimate.replaceGrounded(local, kcalPer100g: per100),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = S.of(context);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
@@ -429,68 +1105,266 @@ class _EstimateBreakdown extends StatelessWidget {
       ),
       child: Column(
         children: [
-          for (final item in estimate.items)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      item.detected.name,
-                      style: const TextStyle(
-                        color: AppColors.text,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  Text(
-                    item.unverified
-                        ? '${item.grams}g · ${item.itemKcal} kcal · ${S.of(context).webUnverified}'
-                        : '${item.grams}g · ${item.itemKcal} kcal · ${item.sourceLabel}',
-                    style: TextStyle(
-                      color: item.unverified ? AppColors.coralSoft : AppColors.textMuted,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
+          if (widget.manual) ...[
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                s.menuHint,
+                style: const TextStyle(color: AppColors.textFaint, fontSize: 11, height: 1.3),
               ),
             ),
-          for (final item in estimate.unmatchedItems)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      item.name,
-                      style: const TextStyle(
-                        color: AppColors.coralSoft,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+            const SizedBox(height: 6),
+          ],
+          for (var i = 0; i < estimate.items.length; i++)
+            widget.manual
+                ? _manualLine(
+                    name: _names[i],
+                    itemKcal: estimate.items[i].itemKcal,
+                    missing: false,
+                    grams: _grams[i],
+                    kcal: _kcals[i],
+                    enabled: widget.enabled,
+                    onName: () => _editName(i, unmatched: false),
+                    onGrams: () => _editGrams(i, unmatched: false),
+                    onKcal: () => _editKcalPer100g(i, unmatched: false),
+                    onRemove: () => widget.onChanged(estimate.removeMenuLine(i, unmatched: false)),
+                  )
+                : _estimateLine(
+                    name: estimate.items[i].detected.name,
+                    itemKcal: estimate.items[i].itemKcal,
+                    missing: false,
+                    grams: _grams[i],
+                    kcal: _kcals[i],
+                    enabled: widget.enabled,
+                    onGrams: () => _editGrams(i, unmatched: false),
+                    onKcal: () => _editKcalPer100g(i, unmatched: false),
                   ),
-                  Text(
-                    S.of(context).gramsNoMatch(item.grams),
-                    style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
+          for (var i = 0; i < estimate.unmatchedItems.length; i++)
+            widget.manual
+                ? _manualLine(
+                    name: _names[estimate.items.length + i],
+                    itemKcal: 0,
+                    missing: true,
+                    grams: _grams[estimate.items.length + i],
+                    kcal: _kcals[estimate.items.length + i],
+                    enabled: widget.enabled,
+                    onName: () => _editName(estimate.items.length + i, unmatched: true),
+                    onGrams: () => _editGrams(estimate.items.length + i, unmatched: true),
+                    onKcal: () => _editKcalPer100g(estimate.items.length + i, unmatched: true),
+                    onRemove: () => widget.onChanged(estimate.removeMenuLine(i, unmatched: true)),
+                  )
+                : _estimateLine(
+                    name: estimate.unmatchedItems[i].name,
+                    itemKcal: 0,
+                    missing: true,
+                    grams: _grams[estimate.items.length + i],
+                    kcal: _kcals[estimate.items.length + i],
+                    enabled: widget.enabled,
+                    onGrams: () => _editGrams(estimate.items.length + i, unmatched: true),
+                    onKcal: () => _editKcalPer100g(estimate.items.length + i, unmatched: true),
+                  ),
+          if (!widget.manual) const SizedBox(height: 8),
+          if (widget.manual) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                if (widget.onAdd != null)
+                  TextButton.icon(
+                    onPressed: widget.enabled ? widget.onAdd : null,
+                    icon: const Icon(Icons.add_rounded, size: 18),
+                    label: Text(s.addIngredient),
+                  ),
+                if (widget.onLookup != null) ...[
+                  const SizedBox(width: 8),
+                  TextButton.icon(
+                    onPressed: widget.enabled ? widget.onLookup : null,
+                    icon: const Icon(Icons.search_rounded, size: 18),
+                    label: Text(s.lookUpMenu),
                   ),
                 ],
-              ),
+              ],
             ),
-          const SizedBox(height: 4),
+          ],
           Align(
             alignment: Alignment.centerLeft,
             child: Text(
-              estimate.items.isEmpty
-                  ? S.of(context).noMatchWriteSimpler
-                  : estimate.hasWebSource
-                      ? S.of(context).webFallbackNote
-                      : S.of(context).editIfOff(estimate.totalKcal),
+              estimate.items.isEmpty ? s.noMatchWriteSimpler : s.editIfOff(estimate.totalKcal),
               style: const TextStyle(color: AppColors.textFaint, fontSize: 11, height: 1.3),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _estimateLine({
+    required String name,
+    required int itemKcal,
+    required bool missing,
+    required TextEditingController grams,
+    required TextEditingController kcal,
+    required bool enabled,
+    required VoidCallback onGrams,
+    required VoidCallback onKcal,
+  }) {
+    final s = S.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              name,
+              style: const TextStyle(
+                color: AppColors.text,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          Text(
+            missing ? s.noMatchShort : '$itemKcal kcal',
+            style: TextStyle(
+              color: missing ? AppColors.textMuted : AppColors.mint,
+              fontSize: missing ? 12 : 16,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(width: 8),
+          _MiniField(controller: grams, suffix: 'g', enabled: enabled, onChanged: (_) => onGrams()),
+          const SizedBox(width: 6),
+          _MiniField(controller: kcal, suffix: '/100g', enabled: enabled, onChanged: (_) => onKcal()),
+        ],
+      ),
+    );
+  }
+
+  Widget _manualLine({
+    required TextEditingController name,
+    required int itemKcal,
+    required bool missing,
+    required TextEditingController grams,
+    required TextEditingController kcal,
+    required bool enabled,
+    required VoidCallback onName,
+    required VoidCallback onGrams,
+    required VoidCallback onKcal,
+    required VoidCallback onRemove,
+  }) {
+    final s = S.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              children: [
+                _MiniField(
+                  controller: name,
+                  hint: s.itemName,
+                  enabled: enabled,
+                  keyboardType: TextInputType.text,
+                  textAlign: TextAlign.left,
+                  onChanged: (_) => onName(),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Text(
+                      missing ? s.noMatchShort : '$itemKcal kcal',
+                      style: TextStyle(
+                        color: missing ? AppColors.textMuted : AppColors.mint,
+                        fontSize: missing ? 12 : 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const Spacer(),
+                    _MiniField(controller: grams, suffix: 'g', enabled: enabled, onChanged: (_) => onGrams()),
+                    const SizedBox(width: 6),
+                    _MiniField(controller: kcal, suffix: '/100g', enabled: enabled, onChanged: (_) => onKcal()),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: enabled ? onRemove : null,
+            icon: const Icon(Icons.close_rounded, size: 16),
+            color: AppColors.textFaint,
+            visualDensity: VisualDensity.compact,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MiniField extends StatelessWidget {
+  final TextEditingController controller;
+  final String? suffix;
+  final String? hint;
+  final bool enabled;
+  final TextInputType keyboardType;
+  final TextAlign textAlign;
+  final ValueChanged<String> onChanged;
+
+  const _MiniField({
+    required this.controller,
+    this.suffix,
+    this.hint,
+    required this.enabled,
+    this.keyboardType = TextInputType.number,
+    this.textAlign = TextAlign.right,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final boxed = suffix != null;
+    return SizedBox(
+      width: boxed ? (suffix == '/100g' ? 86 : 68) : null,
+      child: TextField(
+        controller: controller,
+        enabled: enabled,
+        keyboardType: keyboardType,
+        textAlign: textAlign,
+        style: const TextStyle(
+          color: AppColors.text,
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+        ),
+        decoration: InputDecoration(
+          isDense: true,
+          hintText: hint,
+          hintStyle: const TextStyle(
+            color: AppColors.textFaint,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+          suffixText: suffix,
+          suffixStyle: const TextStyle(
+            color: AppColors.textMuted,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+          ),
+          filled: true,
+          fillColor: AppColors.surfaceInput,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: AppColors.stroke),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: AppColors.accentSoft, width: 1.2),
+          ),
+          disabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: AppColors.stroke),
+          ),
+        ),
+        onChanged: onChanged,
       ),
     );
   }

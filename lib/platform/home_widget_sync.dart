@@ -42,6 +42,7 @@ class HomeWidgetSync {
     int proteinTarget = 90,
     String proteinName = '',
     String proteinFavoriteId = '',
+    int streak = 0,
   }) async {
     if (!_android) return;
     try {
@@ -59,6 +60,7 @@ class HomeWidgetSync {
         'proteinTarget': proteinTarget,
         'proteinName': proteinName,
         'proteinFavoriteId': proteinFavoriteId,
+        'streak': streak,
       });
     } catch (_) {}
   }

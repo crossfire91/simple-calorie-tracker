@@ -29,6 +29,7 @@ class _DailyTargetFormState extends State<DailyTargetForm> {
   late final TextEditingController manualController;
   bool _pickedGoal = false;
   bool _pickedSex = false;
+  bool _manualWeightOpen = false;
 
   static const _activityIcons = [
     Icons.weekend_rounded,
@@ -42,18 +43,21 @@ class _DailyTargetFormState extends State<DailyTargetForm> {
   void initState() {
     super.initState();
     profile = widget.initial.copy();
-    profile.age ??= 28;
-    profile.heightCm ??= 170;
-    profile.weightKg ??= 72;
     profile.manualKcal ??= 2200;
-    if (!widget.firstRun && widget.initial.sex != null && widget.initial.age != null) {
+    if (profile.mode == TargetMode.calculated) {
+      _fillCalculatedDefaults();
+    }
+    _manualWeightOpen = profile.mode == TargetMode.manual && profile.weightKg != null;
+    if (!_guide) {
       _pickedGoal = true;
-      _pickedSex = true;
+      _pickedSex = widget.initial.sex != null;
     }
     manualController = TextEditingController(
       text: profile.manualKcal.toString(),
     );
   }
+
+  bool get _guide => widget.firstRun;
 
   bool get _calculateReady => _pickedGoal && _pickedSex;
 
@@ -75,11 +79,39 @@ class _DailyTargetFormState extends State<DailyTargetForm> {
     return kcal.clamp(800, 4500).toDouble();
   }
 
+  void _fillCalculatedDefaults() {
+    profile.age ??= 28;
+    profile.heightCm ??= 170;
+    profile.weightKg ??= 72;
+  }
+
   void _enterManual() {
     setState(() {
       profile.mode = TargetMode.manual;
       profile.manualKcal = profile.manualKcal ?? 2200;
       manualController.text = '${profile.manualKcal}';
+      if (widget.initial.weightKg == null) {
+        profile.weightKg = null;
+        _manualWeightOpen = false;
+      } else {
+        _manualWeightOpen = profile.weightKg != null;
+      }
+    });
+  }
+
+  void _enterCalculated() {
+    setState(() {
+      profile.mode = TargetMode.calculated;
+      _fillCalculatedDefaults();
+    });
+  }
+
+  void _setGoal(GoalType goal) {
+    setState(() {
+      profile.goal = goal;
+      if (goal == GoalType.lose) profile.paceKgPerWeek = 0.5;
+      if (goal == GoalType.gain) profile.paceKgPerWeek = 0.25;
+      _pickedGoal = true;
     });
   }
 
@@ -109,11 +141,17 @@ class _DailyTargetFormState extends State<DailyTargetForm> {
         children: [
           _Segmented(
             leftSelected: calculated,
-            onLeft: () => setState(() => profile.mode = TargetMode.calculated),
+            onLeft: _enterCalculated,
             onRight: _enterManual,
           ),
           const SizedBox(height: 16),
           if (!calculated) ...[
+            _GoalRow(
+              profile: profile,
+              selected: true,
+              onPicked: _setGoal,
+            ),
+            const SizedBox(height: 16),
             _SliderCard(
               key: const ValueKey('manual-kcal'),
               icon: Icons.bolt_rounded,
@@ -136,8 +174,9 @@ class _DailyTargetFormState extends State<DailyTargetForm> {
             const SizedBox(height: 10),
             AppTextField(
               controller: manualController,
-              label: 'Or type it',
-              hint: 'e.g. 2200',
+              label: s.orTypeIt,
+              hint: s.exampleKcal,
+              suffix: 'kcal',
               icon: Icons.edit_rounded,
               onChanged: (text) {
                 final parsed = int.tryParse(text.trim());
@@ -145,56 +184,53 @@ class _DailyTargetFormState extends State<DailyTargetForm> {
                 setState(() => profile.manualKcal = parsed.clamp(800, 4500));
               },
             ),
-          ] else ...[
-            _Label(s.aimingFor),
             const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: _IconChoice(
-                    icon: Icons.trending_down_rounded,
-                    label: s.lose,
-                    subtitle: s.loseHint,
-                    selected: _pickedGoal && profile.goal == GoalType.lose,
-                    onTap: () => setState(() {
-                      profile.goal = GoalType.lose;
-                      profile.paceKgPerWeek = 0.5;
-                      _pickedGoal = true;
-                    }),
-                  ),
+            if (_manualWeightOpen) ...[
+              _SliderCard(
+                key: const ValueKey('manual-weight'),
+                icon: Icons.monitor_weight_rounded,
+                label: s.startingWeight,
+                suffix: 'kg',
+                decimals: 1,
+                min: 40,
+                max: 180,
+                current: (profile.weightKg ?? 72).clamp(40, 180),
+                divisions: 140,
+                onChanged: (v) {
+                  setState(() {
+                    profile.weightKg = (v * 10).round() / 10;
+                  });
+                },
+              ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => setState(() {
+                    profile.weightKg = null;
+                    _manualWeightOpen = false;
+                  }),
+                  child: Text(s.skipStartingWeight),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _IconChoice(
-                    icon: Icons.favorite_rounded,
-                    label: s.keep,
-                    subtitle: s.keepHint,
-                    selected: _pickedGoal && profile.goal == GoalType.maintain,
-                    onTap: () => setState(() {
-                      profile.goal = GoalType.maintain;
-                      _pickedGoal = true;
-                    }),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _IconChoice(
-                    icon: Icons.trending_up_rounded,
-                    label: s.gain,
-                    subtitle: s.gainHint,
-                    selected: _pickedGoal && profile.goal == GoalType.gain,
-                    onTap: () => setState(() {
-                      profile.goal = GoalType.gain;
-                      profile.paceKgPerWeek = 0.25;
-                      _pickedGoal = true;
-                    }),
-                  ),
-                ),
-              ],
+              ),
+            ] else
+              AppGhostButton(
+                label: s.addStartingWeight,
+                icon: Icons.monitor_weight_outlined,
+                onPressed: () => setState(() {
+                  profile.weightKg = 72;
+                  _manualWeightOpen = true;
+                }),
+              ),
+          ] else ...[
+            _GoalRow(
+              profile: profile,
+              selected: !_guide || _pickedGoal,
+              onPicked: _setGoal,
             ),
             const SizedBox(height: 16),
             _LockedStep(
-              unlocked: _pickedGoal,
+              unlocked: !_guide || _pickedGoal,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -244,7 +280,7 @@ class _DailyTargetFormState extends State<DailyTargetForm> {
             ),
             const SizedBox(height: 14),
             _LockedStep(
-              unlocked: _pickedSex,
+              unlocked: !_guide || _pickedSex,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -303,16 +339,9 @@ class _DailyTargetFormState extends State<DailyTargetForm> {
                   ),
                   if (lose || gain) ...[
                     const SizedBox(height: 10),
-                    _SliderCard(
-                      icon: lose ? Icons.speed_rounded : Icons.restaurant_rounded,
-                      label: lose ? s.howQuickly : s.howYouGrow,
-                      suffix: 'kg/wk',
-                      hint: s.paceName(profile.paceKgPerWeek, lose),
-                      decimals: 2,
-                      min: lose ? 0.25 : 0.15,
-                      max: lose ? 1.0 : 0.5,
-                      current: profile.paceKgPerWeek.clamp(lose ? 0.25 : 0.15, lose ? 1.0 : 0.5),
-                      divisions: lose ? 15 : 14,
+                    _PaceSlider(
+                      lose: lose,
+                      paceKgPerWeek: profile.paceKgPerWeek,
                       onChanged: (v) => setState(() {
                         profile.paceKgPerWeek = (v * 20).round() / 20;
                       }),
@@ -324,25 +353,32 @@ class _DailyTargetFormState extends State<DailyTargetForm> {
           ],
           const SizedBox(height: 20),
           _LockedStep(
-            unlocked: !calculated || _calculateReady,
+            unlocked: !_guide || !calculated || _calculateReady,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 _Label(s.yourNumberLabel),
                 const SizedBox(height: 10),
                 _HeroNumber(
-                  result: !calculated || _calculateReady ? preview : null,
+                  result: !_guide || !calculated || _calculateReady
+                      ? preview
+                      : null,
                   calculated: calculated,
                   goal: profile.goal,
+                  intendedKgPerWeek: profile.paceKgPerWeek,
                   fallbackKcal: calculated ? null : _manualSlider.round(),
                 ),
-                if (preview?.noteKind != null && (!calculated || _calculateReady)) ...[
+                if (preview?.noteKind != null &&
+                    (!_guide || !calculated || _calculateReady)) ...[
                   const SizedBox(height: 12),
                   _NotePill(
                     text: s.targetNote(
                       preview!.noteKind!,
                       preview.plannedKgPerWeek,
                       weightKg: profile.weightKg,
+                      tdee: preview.tdee,
+                      bmr: preview.bmr,
+                      targetKcal: preview.targetKcal,
                     ),
                     highlight: preview.wasCapped || preview.underweightBlocked,
                   ),
@@ -378,12 +414,14 @@ class _HeroNumber extends StatelessWidget {
   final DailyTargetResult? result;
   final bool calculated;
   final GoalType goal;
+  final double intendedKgPerWeek;
   final int? fallbackKcal;
 
   const _HeroNumber({
     required this.result,
     required this.calculated,
     required this.goal,
+    required this.intendedKgPerWeek,
     this.fallbackKcal,
   });
 
@@ -394,7 +432,11 @@ class _HeroNumber extends StatelessWidget {
     final week = result?.plannedKgPerWeek ?? 0;
     String weekLine = s.slideALittle;
     if (kcal != null && !calculated) {
-      weekLine = s.yourDayInOneNumber;
+      weekLine = goal == GoalType.maintain
+          ? s.holdThisBalance
+          : goal == GoalType.gain
+              ? s.gainHint
+              : s.loseHint;
     } else if (kcal != null && week == 0) {
       weekLine = s.holdThisBalance;
     } else if (kcal != null) {
@@ -544,6 +586,92 @@ class _SegTab extends StatelessWidget {
   }
 }
 
+class _GoalRow extends StatelessWidget {
+  final DailyTargetProfile profile;
+  final bool selected;
+  final ValueChanged<GoalType> onPicked;
+
+  const _GoalRow({
+    required this.profile,
+    required this.selected,
+    required this.onPicked,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final s = S.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _Label(s.aimingFor),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: _IconChoice(
+                icon: Icons.trending_down_rounded,
+                label: s.lose,
+                subtitle: s.loseHint,
+                selected: selected && profile.goal == GoalType.lose,
+                onTap: () => onPicked(GoalType.lose),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _IconChoice(
+                icon: Icons.favorite_rounded,
+                label: s.keep,
+                subtitle: s.keepHint,
+                selected: selected && profile.goal == GoalType.maintain,
+                onTap: () => onPicked(GoalType.maintain),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _IconChoice(
+                icon: Icons.trending_up_rounded,
+                label: s.gain,
+                subtitle: s.gainHint,
+                selected: selected && profile.goal == GoalType.gain,
+                onTap: () => onPicked(GoalType.gain),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _PaceSlider extends StatelessWidget {
+  final bool lose;
+  final double paceKgPerWeek;
+  final ValueChanged<double> onChanged;
+
+  const _PaceSlider({
+    required this.lose,
+    required this.paceKgPerWeek,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final s = S.of(context);
+    return _SliderCard(
+      icon: lose ? Icons.speed_rounded : Icons.restaurant_rounded,
+      label: lose ? s.howQuickly : s.howYouGrow,
+      suffix: s.kgPerWeekShort,
+      hint: s.paceName(paceKgPerWeek, lose),
+      decimals: 2,
+      min: lose ? 0.25 : 0.15,
+      max: lose ? 1.0 : 0.5,
+      current: paceKgPerWeek.clamp(lose ? 0.25 : 0.15, lose ? 1.0 : 0.5),
+      divisions: lose ? 15 : 14,
+      onChanged: onChanged,
+    );
+  }
+}
+
 class _IconChoice extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -656,6 +784,7 @@ class _SliderCardState extends State<_SliderCard> {
     }
     _focus = FocusNode()..addListener(() {
       if (!_focus.hasFocus) _commit(_controller.text, clamp: true);
+      if (mounted) setState(() {});
     });
   }
 
@@ -745,7 +874,11 @@ class _SliderCardState extends State<_SliderCard> {
               ),
               if (widget.editable) ...[
                 SizedBox(
-                  width: widget.decimals > 0 ? 72 : 64,
+                  width: widget.suffix == null
+                      ? 72
+                      : widget.suffix!.length > 4
+                          ? 118
+                          : 96,
                   child: TextField(
                     controller: _controller,
                     focusNode: _focus,
@@ -757,7 +890,7 @@ class _SliderCardState extends State<_SliderCard> {
                         widget.decimals > 0 ? RegExp(r'[0-9.,]') : RegExp(r'[0-9]'),
                       ),
                     ],
-                    textAlign: TextAlign.center,
+                    textAlign: TextAlign.right,
                     style: const TextStyle(
                       color: AppColors.text,
                       fontWeight: FontWeight.w700,
@@ -768,11 +901,17 @@ class _SliderCardState extends State<_SliderCard> {
                     onSubmitted: (text) => _commit(text, clamp: true),
                     decoration: InputDecoration(
                       isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                      contentPadding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
                       filled: true,
                       fillColor: AppColors.surfaceHigh,
                       hintText: _fmt(widget.current),
                       hintStyle: const TextStyle(color: AppColors.textFaint, fontSize: 13),
+                      suffixText: widget.suffix,
+                      suffixStyle: const TextStyle(
+                        color: AppColors.textMuted,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
                         borderSide: const BorderSide(color: AppColors.stroke),
@@ -784,17 +923,6 @@ class _SliderCardState extends State<_SliderCard> {
                     ),
                   ),
                 ),
-                if (widget.suffix != null) ...[
-                  const SizedBox(width: 6),
-                  Text(
-                    widget.suffix!,
-                    style: const TextStyle(
-                      color: AppColors.textMuted,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
               ] else
                 Flexible(
                   child: Text(

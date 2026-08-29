@@ -93,6 +93,7 @@ class MainActivity : FlutterActivity() {
                             asInt(args["proteinTarget"], 90),
                             args["proteinName"] as? String ?: "",
                             args["proteinFavoriteId"] as? String ?: "",
+                            asInt(args["streak"], 0),
                         )
                         WidgetHub.refreshAll(this@MainActivity)
                         result.success(true)

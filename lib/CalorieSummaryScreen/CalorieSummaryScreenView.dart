@@ -4,34 +4,37 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:simple_calorie_tracker/AddFoodAlertBody/AddFoodAlertBody.dart';
 import 'package:simple_calorie_tracker/CalorieSummaryScreen/CalorieSummaryScreenModel.dart';
 import 'package:simple_calorie_tracker/GalleryAlert/GalleryAlertBody.dart';
+import 'package:simple_calorie_tracker/backup/backup_payload.dart';
 import 'package:simple_calorie_tracker/theme/app_colors.dart';
 import 'package:simple_calorie_tracker/goal/daily_target.dart';
 import 'package:simple_calorie_tracker/goal/weight_journey.dart';
+import 'package:simple_calorie_tracker/l10n/app_lang.dart';
 import 'package:simple_calorie_tracker/widgets/api_keys_form.dart';
 import 'package:simple_calorie_tracker/widgets/app_dialog.dart';
+import 'package:simple_calorie_tracker/widgets/backup_form.dart';
 import 'package:simple_calorie_tracker/habit/favorites.dart';
+import 'package:simple_calorie_tracker/habit/ring_slices.dart';
 import 'package:simple_calorie_tracker/habit/micro_goals.dart';
 import 'package:simple_calorie_tracker/habit/protein.dart';
 import 'package:simple_calorie_tracker/habit/streak.dart';
 import 'package:simple_calorie_tracker/widgets/calorie_calendar.dart';
 import 'package:simple_calorie_tracker/widgets/calorie_ring.dart';
 import 'package:simple_calorie_tracker/l10n/strings.dart';
+import 'package:simple_calorie_tracker/nutrition/api_keys.dart';
+import 'package:simple_calorie_tracker/nutrition/models.dart';
 import 'package:simple_calorie_tracker/widgets/daily_target_form.dart';
-import 'package:simple_calorie_tracker/widgets/day_pulse_card.dart';
 import 'package:simple_calorie_tracker/widgets/favorite_meals_strip.dart';
-import 'package:simple_calorie_tracker/widgets/language_chip.dart';
-import 'package:simple_calorie_tracker/widgets/loss_support_strip.dart';
+import 'package:simple_calorie_tracker/widgets/settings_menu.dart';
 import 'package:simple_calorie_tracker/widgets/meal_card.dart';
 import 'package:simple_calorie_tracker/widgets/meal_image.dart';
 import 'package:simple_calorie_tracker/widgets/meal_photo_feed.dart';
+import 'package:simple_calorie_tracker/widgets/relative_day_chip.dart';
 import 'package:simple_calorie_tracker/widgets/rest_of_day_coach.dart';
 import 'package:simple_calorie_tracker/widgets/tracked_days_strip.dart';
-import 'package:simple_calorie_tracker/widgets/weight_insight.dart';
 import 'package:simple_calorie_tracker/widgets/weight_journey_card.dart';
 import 'package:simple_calorie_tracker/widgets/weight_log_form.dart';
 import 'package:simple_calorie_tracker/platform/home_widget_sync.dart';
 import 'package:simple_calorie_tracker/update/app_update.dart';
-import 'package:simple_calorie_tracker/update/update_release.dart';
 import 'package:simple_calorie_tracker/widgets/update_banner.dart';
 
 class CalorieSummaryScreenView extends StatefulWidget {
@@ -54,10 +57,13 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
   WeightSnapshot? journey;
   Map<String, DayDigest> dayDigests = {};
   List<FavoriteMeal> favorites = [];
+  List<FavoriteMeal> recentMeals = [];
   List<MealPhoto> weekPhotos = [];
   bool _celebrate = false;
-  bool _loggingFavorite = false;
-  UpdateRelease? _availableUpdate;
+  bool _hasGemini = false;
+  bool _newestMealsFirst = true;
+  int? _ringFocus;
+  UpdateStatus? _updateStatus;
 
   updateChart() {
     totalKcalConsumed = widget.observer.calcTotalKcalConsumed(currentDaysItems);
@@ -67,14 +73,21 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
   Future<void> _reloadDigests() async {
     final next = await widget.observer.getDayDigests() as Map<String, DayDigest>;
     final favs = (await widget.observer.getFavorites() as List).cast<FavoriteMeal>();
+    final recents = (await widget.observer.getRecentQuickMeals() as List).cast<FavoriteMeal>();
     final photos = (await widget.observer.getRecentMealPhotos() as List).cast<MealPhoto>();
     if (!mounted) return;
     setState(() {
       dayDigests = next;
       favorites = favs;
+      recentMeals = recents;
       weekPhotos = photos;
     });
   }
+
+  List<FavoriteMeal> get _quickMeals => QuickMeals.merge(
+        favorites: favorites,
+        recent: recentMeals,
+      );
 
   List<LoggedBite> get _todayBites {
     return currentDaysItems.map((item) {
@@ -98,11 +111,6 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
   double get _yesterdayKcal {
     final key = JourneyMath.dateKey(selectedDate.subtract(const Duration(days: 1)));
     return dayDigests[key]?.kcal ?? 0;
-  }
-
-  int get _streak {
-    final meals = StreakMath.mealKeys(dayDigests);
-    return StreakMath.currentStreak(meals);
   }
 
   bool get _isToday => JourneyMath.sameDay(selectedDate, DateTime.now());
@@ -130,9 +138,26 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
 
   Future<void> _selectDate(DateTime date) async {
     selectedDate = date;
+    _ringFocus = null;
     setState(() {});
     currentDaysItems = await widget.observer.getDaysItems(date);
     updateChart();
+  }
+
+  void _setRingFocus(int? next) {
+    setState(() => _ringFocus = next);
+  }
+
+  void _toggleRingFocus(int mealIndex) {
+    _setRingFocus(_ringFocus == mealIndex ? null : mealIndex);
+  }
+
+  Future<void> _setMealSortNewest(bool newest) async {
+    if (_newestMealsFirst == newest) return;
+    HapticFeedback.selectionClick();
+    setState(() => _newestMealsFirst = newest);
+    sharedPreferences ??= await SharedPreferences.getInstance();
+    await sharedPreferences!.setBool(CalorieSummaryScreenModel.mealSortNewestPref, newest);
   }
 
   Future<void> _showWelcome({bool firstRun = false}) async {
@@ -155,7 +180,7 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
             kcalBudget = kcal;
             sharedPreferences ??= await SharedPreferences.getInstance();
             await sharedPreferences!.setBool("hasSetCalorieBudget", false);
-            if (saved.mode == TargetMode.calculated && saved.weightKg != null) {
+            if (saved.weightKg != null) {
               final latest = journey?.currentKg;
               if (latest == null || (latest - saved.weightKg!).abs() >= 0.05) {
                 kcalBudget = await widget.observer.logWeight(saved.weightKg!, DateTime.now());
@@ -212,7 +237,9 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
       child: AppDialogCard(
         icon: Icons.monitor_weight_rounded,
         title: s.logWeightTitle,
-        subtitle: s.logWeightSubtitle,
+        subtitle: journey?.profile.mode == TargetMode.manual
+            ? s.logWeightSubtitleManual
+            : s.logWeightSubtitle,
         child: WeightLogForm(
           initialKg: current,
           date: selectedDate,
@@ -229,13 +256,13 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
   }
 
   Future<void> _checkAppUpdate() async {
-    if (!AppUpdate.isSupported) return;
     try {
-      final found = await AppUpdate.check();
-      if (found == null || !mounted) return;
-      if (await AppUpdate.isSkipped(found)) return;
+      final status = await AppUpdate.status();
       if (!mounted) return;
-      setState(() => _availableUpdate = found);
+      setState(() => _updateStatus = status);
+      final found = status.newer;
+      if (found == null || !AppUpdate.isSupported) return;
+      if (await AppUpdate.isSkipped(found)) return;
       if (await AppUpdate.shouldPrompt(found) && mounted) {
         await AppUpdate.markPrompted(found);
         if (mounted) {
@@ -245,16 +272,102 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
     } catch (_) {}
   }
 
-  Future<void> _showUpdate() async {
-    final release = _availableUpdate;
-    if (release == null) return;
-    await showUpdateDialog(context: context, release: release);
+  Future<void> _checkForUpdate() async {
+    try {
+      final status = await AppUpdate.status();
+      if (!mounted) return;
+      setState(() => _updateStatus = status);
+      if (status.newer != null && AppUpdate.isSupported) {
+        await showUpdateDialog(context: context, release: status.newer!);
+        return;
+      }
+      await showAppMessage(
+        context: context,
+        icon: status.hasUpdate ? Icons.system_update_rounded : Icons.check_circle_rounded,
+        title: status.hasUpdate
+            ? S.of(context).updateAvailable
+            : S.of(context).updateUpToDate,
+        subtitle: status.hasUpdate
+            ? S.of(context).updateAvailableSubtitle(status.newer!.versionName)
+            : S.of(context).currentVersion(status.installed.versionName),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      await showAppMessage(
+        context: context,
+        icon: Icons.error_outline_rounded,
+        title: S.of(context).updateFailed,
+      );
+    }
   }
 
-  Future<void> _dismissUpdate() async {
-    final release = _availableUpdate;
-    if (release != null) await AppUpdate.skip(release);
-    if (mounted) setState(() => _availableUpdate = null);
+  Future<void> _refreshGeminiUnlock() async {
+    final unlocked = await NutritionApiKeys.hasGemini();
+    if (!mounted) return;
+    setState(() => _hasGemini = unlocked);
+  }
+
+  Future<void> _afterRestore() async {
+    sharedPreferences = await SharedPreferences.getInstance();
+    selectedDate = DateTime.now();
+    currentDaysItems = await widget.observer.getDaysItems(selectedDate);
+    kcalBudget = await widget.observer.getKcalBudget();
+    if (mounted) {
+      setState(() {
+        _newestMealsFirst =
+            sharedPreferences!.getBool(CalorieSummaryScreenModel.mealSortNewestPref) ?? true;
+      });
+    }
+    await _reloadJourney();
+    await _reloadDigests();
+    await _refreshGeminiUnlock();
+    updateChart();
+    final langName = sharedPreferences?.getString('appLang');
+    if (langName != null && mounted) {
+      final next = AppLang.values.asNameMap()[langName];
+      if (next != null) await LocaleScope.of(context).setLang(next);
+    }
+  }
+
+  Future<void> _showBackup() async {
+    final s = S.of(context);
+    final counts = await widget.observer.backupCounts() as BackupCounts;
+    final record = await widget.observer.backupRecord() as BackupRecord;
+    if (!mounted) return;
+    final restored = await showAppDialog<BackupSnapshot>(
+      context: context,
+      child: AppDialogCard(
+        icon: Icons.cloud_rounded,
+        title: s.backupTitle,
+        subtitle: s.backupSubtitle,
+        child: BackupForm(
+          counts: counts,
+          record: record,
+          createBackup: ({required includePhotos}) async {
+            return await widget.observer.createBackup(includePhotos: includePhotos)
+                as BackupSnapshot;
+          },
+          markSaved: (snapshot, bytes) async {
+            await widget.observer.markBackupSaved(snapshot, bytes);
+          },
+          restoreBackup: (snapshot) async {
+            await widget.observer.restoreBackup(snapshot);
+          },
+          onIncludePhotosChanged: (include) async {
+            await widget.observer.setBackupIncludePhotos(include);
+          },
+          onRestored: _afterRestore,
+        ),
+      ),
+    );
+    if (restored != null && mounted) {
+      await showAppMessage(
+        context: context,
+        icon: Icons.cloud_download_rounded,
+        title: S.of(context).backupRestored,
+        subtitle: S.of(context).backupRestoredSubtitle(restored.mealCount),
+      );
+    }
   }
 
   Future<void> _showApiKeys() async {
@@ -266,13 +379,22 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
         title: s.photoEstimate,
         subtitle: s.photoEstimateSubtitle,
         child: ApiKeysForm(
-          onSaved: () => Navigator.pop(context),
+          onSaved: () async {
+            Navigator.pop(context);
+            await _refreshGeminiUnlock();
+          },
         ),
       ),
     );
   }
 
-  void _showAddFood({bool serving = false, int index = 0, bool snap = false}) {
+  void _showAddFood({
+    bool serving = false,
+    int index = 0,
+    bool snap = false,
+    FavoriteMeal? draft,
+    Uint8List? draftImage,
+  }) {
     final s = S.of(context);
     showAppDialog(
       context: context,
@@ -287,10 +409,24 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
             ? s.lookingAtThePlate
             : serving
                 ? s.anotherServingSubtitle
-                : s.logAMealSubtitle,
+                : draft != null
+                    ? s.logFavoriteSubtitle
+                    : s.logAMealSubtitle,
         child: AddFoodAlertBody(
           startWithCamera: snap,
           addServingMode: serving,
+          initialName: draft?.name,
+          initialKcalPer100g: draft?.kcalPer100g,
+          initialGrams: draft?.weightInGrams,
+          initialImage: draftImage,
+          initialEstimate: draft == null
+              ? null
+              : MealEstimate.decodeForGrams(draft.breakdown, draft.weightInGrams),
+          initialDescription: draft?.description,
+          quickMeals: serving ? const [] : _quickMeals,
+          estimateUnlocked: _hasGemini,
+          onUnlockEstimate: serving ? null : _showApiKeys,
+          loadPhotoForQuick: serving ? null : _latestPhotoForName,
           kcalPer100gOverride: serving ? currentDaysItems[index]["kcalPer100g"] : null,
           onAddFood: (draft) async {
             final before = totalKcalConsumed;
@@ -315,6 +451,8 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
                 name: draft.name,
                 proteinG: draft.proteinG,
                 pinFavorite: draft.pinFavorite,
+                breakdown: draft.breakdown,
+                description: draft.description,
               ));
             }
             if (mounted) Navigator.pop(context);
@@ -325,25 +463,102 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
     );
   }
 
-  Future<void> _logFavorite(FavoriteMeal fav) async {
-    if (_loggingFavorite || fav.weightInGrams <= 0 || fav.kcalPer100g <= 0) return;
-    _loggingFavorite = true;
-    final before = totalKcalConsumed;
-    HapticFeedback.mediumImpact();
-    try {
-      currentDaysItems.add(await widget.observer.addFood(
-        fav.kcalPer100g,
-        fav.weightInGrams,
-        selectedDate,
-        Uint8List(0),
-        false,
-        name: fav.name,
-        proteinG: fav.proteinG,
-      ));
-      await _afterMealChange(before);
-    } finally {
-      _loggingFavorite = false;
+  void _showEditFood(int index) {
+    final s = S.of(context);
+    final item = currentDaysItems[index];
+    final grams = (item['weightInGrams'] as num).toInt();
+    final photos = (item['mealImages'] ?? []) as List;
+    final firstPhoto = photos.isEmpty
+        ? null
+        : photos.first is Map
+            ? Map<String, dynamic>.from(photos.first as Map)
+            : null;
+    final estimate = MealEstimate.decodeForGrams(item['breakdown'] as String?, grams);
+    showAppDialog(
+      context: context,
+      child: AppDialogCard(
+        icon: Icons.edit_rounded,
+        title: s.editMeal,
+        subtitle: s.editMealSubtitle,
+        child: AddFoodAlertBody(
+          editMode: true,
+          initialName: (item['name'] as String?) ?? '',
+          initialKcalPer100g: (item['kcalPer100g'] as num).toInt(),
+          initialGrams: grams,
+          initialImage: decodeMealImageBytes(firstPhoto),
+          initialEstimate: estimate,
+          initialDescription: (item['description'] as String?) ?? '',
+          estimateUnlocked: _hasGemini,
+          onUnlockEstimate: _showApiKeys,
+          onAddFood: (draft) async {
+            final before = totalKcalConsumed;
+            currentDaysItems[index] = await widget.observer.updateFood(
+              id: item['id'],
+              kcalPer100g: draft.kcalPer100g,
+              weightInGrams: draft.weightInGrams,
+              imageBytes: draft.imageBytes,
+              didTakeImage: draft.didTakeImage,
+              name: draft.name,
+              proteinG: draft.proteinG,
+              pinFavorite: draft.pinFavorite,
+              breakdown: draft.breakdown,
+              description: draft.description,
+            );
+            if (mounted) Navigator.pop(context);
+            await _afterMealChange(before);
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _longPressQuick(FavoriteMeal meal) async {
+    if (favorites.any((fav) => fav.id == meal.id)) {
+      await _removeFavorite(meal);
+      return;
     }
+    await widget.observer.upsertFavorite(
+      name: meal.name,
+      kcalPer100g: meal.kcalPer100g,
+      weightInGrams: meal.weightInGrams,
+      proteinG: meal.proteinG,
+      breakdown: meal.breakdown,
+      description: meal.description,
+    );
+    await _reloadDigests();
+  }
+
+  Future<void> _openFavorite(FavoriteMeal fav) async {
+    if (!fav.canLogAgain) return;
+    HapticFeedback.selectionClick();
+    final image = await _latestPhotoForName(fav);
+    if (!mounted) return;
+    _showAddFood(draft: fav, draftImage: image);
+  }
+
+  Future<Uint8List?> _latestPhotoForName(FavoriteMeal fav) async {
+    MealPhoto? match;
+    for (final photo in weekPhotos) {
+      if (photo.name.trim().toLowerCase() != fav.name.trim().toLowerCase()) {
+        continue;
+      }
+      match = photo;
+      break;
+    }
+    if (match == null) {
+      final photos =
+          (await widget.observer.getRecentMealPhotos() as List).cast<MealPhoto>();
+      if (mounted) weekPhotos = photos;
+      for (final photo in photos) {
+        if (photo.name.trim().toLowerCase() != fav.name.trim().toLowerCase()) {
+          continue;
+        }
+        match = photo;
+        break;
+      }
+    }
+    if (match == null) return null;
+    return loadMealImageBytes(path: match.imagePath, bytes: match.imageBytes);
   }
 
   Future<void> _pinItem(Map item) async {
@@ -370,6 +585,8 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
             name: name,
             kcal: (item["kcalPer100g"] as num) * (item["weightInGrams"] as num) / 100,
           ),
+      breakdown: item['breakdown'] as String?,
+      description: item['description'] as String?,
     );
     await _reloadDigests();
   }
@@ -416,6 +633,12 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
 
       setState(() {});
       sharedPreferences = await SharedPreferences.getInstance();
+      if (mounted) {
+        setState(() {
+          _newestMealsFirst =
+              sharedPreferences!.getBool(CalorieSummaryScreenModel.mealSortNewestPref) ?? true;
+        });
+      }
       if ((sharedPreferences!.getBool("hasSetCalorieBudget") ?? true) && mounted) {
         await Future.delayed(const Duration(milliseconds: 280));
         if (mounted) await _showWelcome(firstRun: true);
@@ -423,6 +646,7 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
         await _reloadJourney();
       }
       if (mounted) await _reloadDigests();
+      if (mounted) await _refreshGeminiUnlock();
       await widget.observer.syncHomeWidget();
       if (mounted) await HomeWidgetSync.listen(_onWidgetAction);
       if (mounted) await _checkAppUpdate();
@@ -456,12 +680,43 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
       }
     }
     if (match == null || !mounted) return;
-    await _logFavorite(match);
+    await _openFavorite(match);
   }
 
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
+    final ringMeals = [
+      for (final item in currentDaysItems)
+        RingMeal(
+          name: (item['name'] as String?) ?? '',
+          kcal: ((item['kcalPer100g'] as num) * (item['weightInGrams'] as num)) / 100.0,
+          loggedAt: item['loggedAt'] is num
+              ? DateTime.fromMillisecondsSinceEpoch((item['loggedAt'] as num).toInt())
+              : null,
+          photoPath: () {
+            final photos = (item['mealImages'] ?? []) as List;
+            if (photos.isEmpty || photos.first is! Map) return null;
+            return Map<String, dynamic>.from(photos.first as Map)['imagePath'] as String?;
+          }(),
+          photoBytes: () {
+            final photos = (item['mealImages'] ?? []) as List;
+            if (photos.isEmpty || photos.first is! Map) return null;
+            return decodeMealImageBytes(Map<String, dynamic>.from(photos.first as Map));
+          }(),
+        ),
+    ];
+    final mealKcals = [for (final meal in ringMeals) meal.kcal];
+    final mealOffsets = <double>[];
+    var preceding = 0.0;
+    for (final kcal in mealKcals) {
+      mealOffsets.add(preceding);
+      preceding += kcal;
+    }
+    final mealOrder = CalorieSummaryScreenModel.mealDisplayOrder(
+      currentDaysItems,
+      newestFirst: _newestMealsFirst,
+    );
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
@@ -493,39 +748,6 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
                             ],
                           ),
                         ),
-                        const LanguageChip(),
-                        if (_streak > 0)
-                          Container(
-                            margin: const EdgeInsets.only(right: 8),
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                            decoration: BoxDecoration(
-                              gradient: AppColors.gradient,
-                              borderRadius: BorderRadius.circular(14),
-                              boxShadow: AppColors.glow(AppColors.accent, 0.2),
-                            ),
-                            child: Text(
-                              '$_streak',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w800,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ),
-                        GestureDetector(
-                          onTap: _showApiKeys,
-                          child: Container(
-                            width: 40,
-                            height: 40,
-                            margin: const EdgeInsets.only(right: 8),
-                            decoration: BoxDecoration(
-                              color: AppColors.surface,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: AppColors.stroke),
-                            ),
-                            child: const Icon(Icons.key_rounded, size: 18, color: AppColors.textMuted),
-                          ),
-                        ),
                         GestureDetector(
                           onTap: _showWelcome,
                           child: Container(
@@ -546,12 +768,13 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
                                     fontSize: 12,
                                   ),
                                 ),
-                                if (journey?.visible == true && journey!.result != null) ...[
+                                if (journey?.visible == true &&
+                                    journey!.result != null) ...[
                                   const SizedBox(height: 2),
                                   Text(
                                     s.weekLine(
-                                      journey!.profile.goal,
-                                      journey!.result!.plannedKgPerWeek,
+                                      journey!.journeyGoal,
+                                      journey!.journeyPaceKgPerWeek,
                                     ),
                                     style: const TextStyle(
                                       color: AppColors.accentSoft,
@@ -563,6 +786,13 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
                               ],
                             ),
                           ),
+                        ),
+                        const SizedBox(width: 8),
+                        SettingsMenuButton(
+                          onBackup: _showBackup,
+                          onApiKeys: _showApiKeys,
+                          onCheckUpdate: _checkForUpdate,
+                          updateStatus: _updateStatus,
                         ),
                       ],
                     ),
@@ -583,47 +813,135 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
                           child: Padding(
                             padding: const EdgeInsets.only(top: 10, bottom: 4),
                             child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                if (_availableUpdate != null)
-                                  UpdateBanner(
-                                    release: _availableUpdate!,
-                                    onUpdate: _showUpdate,
-                                    onDismiss: _dismissUpdate,
-                                  ),
+                                RelativeDayChip(date: selectedDate),
+                                const SizedBox(height: 10),
                                 FittedBox(
                                   child: CalorieRing(
                                     consumed: totalKcalConsumed,
                                     budget: kcalBudget,
                                     ghostConsumed: _yesterdayKcal,
                                     celebrate: _celebrate,
+                                    meals: ringMeals,
+                                    focus: _ringFocus,
+                                    onFocus: _setRingFocus,
                                   ),
                                 ),
-                                if (journey?.visible == true &&
-                                    journey!.result != null &&
-                                    journey!.currentKg != null) ...[
+                              ],
+                            ),
+                          ),
+                        ),
+                        SliverPadding(
+                          padding: const EdgeInsets.fromLTRB(22, 16, 22, 10),
+                          sliver: SliverToBoxAdapter(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        s.mealsHeading(selectedDate),
+                                        style: Theme.of(context).textTheme.labelSmall,
+                                      ),
+                                    ),
+                                    Text(
+                                      '${currentDaysItems.length}',
+                                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                            color: AppColors.accentSoft,
+                                          ),
+                                    ),
+                                  ],
+                                ),
+                                if (currentDaysItems.length > 1) ...[
                                   const SizedBox(height: 8),
-                                  WeightInsightBanner(
-                                    result: journey!.result!,
-                                    goal: journey!.profile.goal,
-                                    currentKg: journey!.currentKg!,
-                                    onTap: _showWeightLog,
+                                  MealSortToggle(
+                                    newestFirst: _newestMealsFirst,
+                                    onChanged: _setMealSortNewest,
                                   ),
                                 ],
                               ],
                             ),
                           ),
                         ),
-                        if (!_isFuture)
+                        if (currentDaysItems.isEmpty)
+                          const SliverToBoxAdapter(
+                            child: SizedBox(
+                              height: 140,
+                              child: ClipRect(child: MealsEmptyState()),
+                            ),
+                          )
+                        else
                           SliverPadding(
-                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                            sliver: SliverList(
+                              delegate: SliverChildBuilderDelegate(
+                                (context, index) {
+                                  if (index.isOdd) return const SizedBox(height: 10);
+                                  final itemIndex = mealOrder[index ~/ 2];
+                                  final item = currentDaysItems[itemIndex];
+                                  final grams = (item["weightInGrams"] as num).toInt();
+                                  final per100 = (item["kcalPer100g"] as num).toInt();
+                                  final kcal = grams * per100 / 100;
+                                  final photos = (item["mealImages"] ?? []) as List;
+                                  final firstPhoto = photos.isEmpty
+                                      ? null
+                                      : photos.first is Map
+                                          ? Map<String, dynamic>.from(photos.first as Map)
+                                          : null;
+                                  final name = (item["name"] as String?) ?? '';
+                                  final stamp = item['loggedAt'];
+                                  final loggedAt = stamp is num
+                                      ? DateTime.fromMillisecondsSinceEpoch(stamp.toInt())
+                                      : null;
+                                  final pinned = favorites.any(
+                                    (fav) => fav.name.toLowerCase() == name.trim().toLowerCase(),
+                                  );
+                                  return MealCard(
+                                    name: name,
+                                    description: (item['description'] as String?) ?? '',
+                                    kcal: kcal.toDouble(),
+                                    grams: grams,
+                                    kcalPer100g: per100,
+                                    dailyBudget: kcalBudget,
+                                    precedingKcal: mealOffsets[itemIndex],
+                                    loggedAt: loggedAt,
+                                    swatch: AppColors.mealSwatch(itemIndex),
+                                    selected: _ringFocus == itemIndex,
+                                    hasPhotos: photos.isNotEmpty,
+                                    photoPath: firstPhoto?['imagePath'] as String?,
+                                    photoBytes: decodeMealImageBytes(firstPhoto),
+                                    pinned: pinned,
+                                    onPin: name.trim().isEmpty ? null : () => _pinItem(item),
+                                    onEdit: () => _showEditFood(itemIndex),
+                                    onAddServing: () => _showAddFood(serving: true, index: itemIndex),
+                                    onDelete: () => _confirmDelete(itemIndex),
+                                    onOpenGallery: () {
+                                      showDialog(
+                                        context: context,
+                                        barrierColor: Colors.transparent,
+                                        builder: (context) {
+                                          return GalleryAlertBody(imagePaths: photos);
+                                        },
+                                      );
+                                    },
+                                  );
+                                },
+                                childCount: currentDaysItems.length * 2 - 1,
+                              ),
+                            ),
+                          ),
+                        if (_quickMeals.isNotEmpty)
+                          SliverPadding(
+                            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
                             sliver: SliverToBoxAdapter(
-                              child: DayPulseCard(
-                                snapshot: MicroGoalMath.fromMeals(
-                                  _todayBites,
-                                  weightKg: journey?.currentKg ?? journey?.profile.weightKg,
-                                  forDay: selectedDate,
-                                ),
-                                title: _isToday ? s.microGoals : s.microGoalsThatDay,
+                              child: FavoriteMealsStrip(
+                                favorites: _quickMeals,
+                                hasPinned: favorites.isNotEmpty,
+                                pinnedIds: favorites.map((fav) => fav.id).toSet(),
+                                onLog: _openFavorite,
+                                onRemove: _longPressQuick,
                               ),
                             ),
                           ),
@@ -635,22 +953,12 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
                                 consumed: totalKcalConsumed,
                                 budget: kcalBudget,
                                 favorites: favorites,
+                                recent: recentMeals,
                                 meals: _todayBites,
                                 weightKg: journey?.currentKg ?? journey?.profile.weightKg,
                                 isToday: true,
-                                onLogFavorite: _logFavorite,
+                                onLogFavorite: _openFavorite,
                                 onAdd: () => _showAddFood(),
-                              ),
-                            ),
-                          ),
-                        if (favorites.isNotEmpty)
-                          SliverPadding(
-                            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                            sliver: SliverToBoxAdapter(
-                              child: FavoriteMealsStrip(
-                                favorites: favorites,
-                                onLog: _logFavorite,
-                                onRemove: _removeFavorite,
                               ),
                             ),
                           ),
@@ -692,89 +1000,7 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
                               ),
                             ),
                           ),
-                        if (journey?.showLossSupport == true)
-                          const SliverPadding(
-                            padding: EdgeInsets.fromLTRB(16, 16, 16, 0),
-                            sliver: SliverToBoxAdapter(
-                              child: LossSupportStrip(),
-                            ),
-                          ),
-                        SliverPadding(
-                          padding: const EdgeInsets.fromLTRB(22, 16, 22, 10),
-                          sliver: SliverToBoxAdapter(
-                            child: Row(
-                              children: [
-                                Text(
-                                  s.mealsHeading(selectedDate),
-                                  style: Theme.of(context).textTheme.labelSmall,
-                                ),
-                                const Spacer(),
-                                Text(
-                                  '${currentDaysItems.length}',
-                                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                        color: AppColors.accentSoft,
-                                      ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        if (currentDaysItems.isEmpty)
-                          const SliverToBoxAdapter(
-                            child: SizedBox(
-                              height: 180,
-                              child: ClipRect(child: MealsEmptyState()),
-                            ),
-                          )
-                        else
-                          SliverPadding(
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 108),
-                            sliver: SliverList(
-                              delegate: SliverChildBuilderDelegate(
-                                (context, index) {
-                                  if (index.isOdd) return const SizedBox(height: 10);
-                                  final itemIndex = index ~/ 2;
-                                  final item = currentDaysItems[itemIndex];
-                                  final grams = (item["weightInGrams"] as num).toInt();
-                                  final per100 = (item["kcalPer100g"] as num).toInt();
-                                  final kcal = grams * per100 / 100;
-                                  final photos = (item["mealImages"] ?? []) as List;
-                                  final firstPhoto = photos.isEmpty
-                                      ? null
-                                      : photos.first is Map
-                                          ? Map<String, dynamic>.from(photos.first as Map)
-                                          : null;
-                                  final name = (item["name"] as String?) ?? '';
-                                  final pinned = favorites.any(
-                                    (fav) => fav.name.toLowerCase() == name.trim().toLowerCase(),
-                                  );
-                                  return MealCard(
-                                    name: name,
-                                    kcal: kcal.toDouble(),
-                                    grams: grams,
-                                    kcalPer100g: per100,
-                                    hasPhotos: photos.isNotEmpty,
-                                    photoPath: firstPhoto?['imagePath'] as String?,
-                                    photoBytes: decodeMealImageBytes(firstPhoto),
-                                    pinned: pinned,
-                                    onPin: name.trim().isEmpty ? null : () => _pinItem(item),
-                                    onAddServing: () => _showAddFood(serving: true, index: itemIndex),
-                                    onDelete: () => _confirmDelete(itemIndex),
-                                    onOpenGallery: () {
-                                      showDialog(
-                                        context: context,
-                                        barrierColor: Colors.transparent,
-                                        builder: (context) {
-                                          return GalleryAlertBody(imagePaths: photos);
-                                        },
-                                      );
-                                    },
-                                  );
-                                },
-                                childCount: currentDaysItems.length * 2 - 1,
-                              ),
-                            ),
-                          ),
+                        const SliverToBoxAdapter(child: SizedBox(height: 108)),
                       ],
                     ),
                   ),

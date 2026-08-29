@@ -4,12 +4,15 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:simple_calorie_tracker/backup/backup_payload.dart';
+import 'package:simple_calorie_tracker/backup/backup_repository.dart';
 import 'package:simple_calorie_tracker/goal/daily_target.dart';
 import 'package:simple_calorie_tracker/goal/weight_journey.dart';
 import 'package:simple_calorie_tracker/habit/favorites.dart';
 import 'package:simple_calorie_tracker/habit/micro_goals.dart';
 import 'package:simple_calorie_tracker/habit/protein.dart';
 import 'package:simple_calorie_tracker/habit/rest_of_day.dart';
+import 'package:simple_calorie_tracker/habit/streak.dart';
 import 'package:simple_calorie_tracker/l10n/app_lang.dart';
 import 'package:simple_calorie_tracker/l10n/strings.dart';
 import 'package:simple_calorie_tracker/platform/home_widget_sync.dart';
@@ -33,6 +36,10 @@ class CalorieSummaryScreenModel {
     await _ensureColumn('trackedMeals', 'name', 'VARCHAR(255)');
     await _ensureColumn('trackedMeals', 'proteinG', 'REAL');
     await _ensureColumn('trackedMeals', 'loggedAt', 'INTEGER');
+    await _ensureColumn('trackedMeals', 'breakdown', 'TEXT');
+    await _ensureColumn('trackedMeals', 'description', 'TEXT');
+    await _ensureColumn('favoriteMeals', 'breakdown', 'TEXT');
+    await _ensureColumn('favoriteMeals', 'description', 'TEXT');
     await _ensureColumn('mealImages', 'imageBlob', 'BLOB');
   }
 
@@ -60,6 +67,8 @@ class CalorieSummaryScreenModel {
     String name = '',
     double proteinG = 0,
     bool pinFavorite = false,
+    String? breakdown,
+    String? description,
   }) async {
     await _initDbAndTable();
     String imagePath = '';
@@ -103,6 +112,8 @@ class CalorieSummaryScreenModel {
         'name': cleanedName,
         'proteinG': protein,
         'loggedAt': loggedAt,
+        'breakdown': breakdown ?? '',
+        'description': description ?? '',
       });
     } else {
       List<Map<String, dynamic>> meal = await db!.query(
@@ -136,9 +147,15 @@ class CalorieSummaryScreenModel {
         kcalPer100g: kcalPer100g,
         weightInGrams: weightInGrams,
         proteinG: protein,
+        breakdown: breakdown,
+        description: description,
       );
     } else if (cleanedName.isNotEmpty && id == null) {
-      await _bumpFavoriteIfKnown(cleanedName);
+      await _bumpFavoriteIfKnown(
+        cleanedName,
+        breakdown: breakdown,
+        description: description,
+      );
     }
 
     final payload = {
@@ -150,6 +167,8 @@ class CalorieSummaryScreenModel {
       'name': cleanedName,
       'proteinG': protein,
       'loggedAt': loggedAt,
+      'breakdown': breakdown ?? '',
+      'description': description ?? '',
     };
 
     await syncHomeWidget();
@@ -161,6 +180,79 @@ class CalorieSummaryScreenModel {
       };
     }
     return payload;
+  }
+
+  updateFood({
+    required String id,
+    required int kcalPer100g,
+    required int weightInGrams,
+    required Uint8List imageBytes,
+    required bool didTakeImage,
+    String name = '',
+    double proteinG = 0,
+    bool pinFavorite = false,
+    String? breakdown,
+    String? description,
+  }) async {
+    await _initDbAndTable();
+    final cleanedName = name.trim();
+    final protein = proteinG > 0
+        ? proteinG
+        : ProteinMath.estimateGrams(
+            name: cleanedName,
+            kcal: (kcalPer100g * weightInGrams) / 100,
+          );
+    final fields = <String, Object?>{
+      'kcalPer100g': kcalPer100g,
+      'weightInGrams': weightInGrams,
+      'name': cleanedName,
+      'proteinG': protein,
+      'description': description ?? '',
+    };
+    if (breakdown != null) fields['breakdown'] = breakdown;
+    await db!.update('trackedMeals', fields, where: 'id = ?', whereArgs: [id]);
+
+    Map<String, dynamic>? mealImageRow;
+    if (didTakeImage && imageBytes.isNotEmpty) {
+      String imagePath = '';
+      if (!kIsWeb) {
+        final appDocumentsDir = await getApplicationDocumentsDirectory();
+        imagePath = '${appDocumentsDir.path}/${const Uuid().v4()}.jpg';
+        File(imagePath).writeAsBytesSync(imageBytes);
+      }
+      mealImageRow = {
+        'imagePath': imagePath,
+        'id': const Uuid().v1().toString(),
+        'mealId': id,
+        'imageBlob': imageBytes,
+      };
+      await db!.insert('mealImages', mealImageRow);
+    }
+
+    if (pinFavorite && cleanedName.isNotEmpty) {
+      await upsertFavorite(
+        name: cleanedName,
+        kcalPer100g: kcalPer100g,
+        weightInGrams: weightInGrams,
+        proteinG: protein,
+        breakdown: breakdown,
+        description: description,
+      );
+    }
+
+    await syncHomeWidget();
+    return _mealRow(id);
+  }
+
+  Future<Map<String, dynamic>> _mealRow(String id) async {
+    final meals = await db!.query('trackedMeals', where: 'id = ?', whereArgs: [id]);
+    if (meals.isEmpty) return {'id': id};
+    final images = await db!.query('mealImages', where: 'mealId = ?', whereArgs: [id]);
+    return {
+      ...meals.first,
+      'mealImages': List.from(images),
+      'imagePath': images.isNotEmpty ? images.first['imagePath'] : '',
+    };
   }
 
   getDaysItems(DateTime date) async {
@@ -187,7 +279,33 @@ class CalorieSummaryScreenModel {
       result.add(Map.from(meal));
     }
 
+    sortMealsChronologically(result);
     return List.from(result);
+  }
+
+  static const mealSortNewestPref = 'mealSortNewestFirst';
+
+  static int compareMealsChronologically(dynamic a, dynamic b) {
+    final la = (a['loggedAt'] as num?)?.toInt() ?? 0;
+    final lb = (b['loggedAt'] as num?)?.toInt() ?? 0;
+    if (la != lb) return la.compareTo(lb);
+    return '${a['id']}'.compareTo('${b['id']}');
+  }
+
+  static void sortMealsChronologically(List meals, {bool newestFirst = false}) {
+    meals.sort((a, b) {
+      final cmp = compareMealsChronologically(a, b);
+      return newestFirst ? -cmp : cmp;
+    });
+  }
+
+  static List<int> mealDisplayOrder(List meals, {required bool newestFirst}) {
+    final indices = List<int>.generate(meals.length, (i) => i);
+    indices.sort((a, b) {
+      final cmp = compareMealsChronologically(meals[a], meals[b]);
+      return newestFirst ? -cmp : cmp;
+    });
+    return indices;
   }
 
   deleteItem(String id) async {
@@ -237,7 +355,11 @@ class CalorieSummaryScreenModel {
     }
     if (profile.age != null) await prefs.setInt("goalAge", profile.age!);
     if (profile.heightCm != null) await prefs.setDouble("goalHeightCm", profile.heightCm!);
-    if (profile.weightKg != null) await prefs.setDouble("goalWeightKg", profile.weightKg!);
+    if (profile.weightKg != null) {
+      await prefs.setDouble("goalWeightKg", profile.weightKg!);
+    } else {
+      await prefs.remove("goalWeightKg");
+    }
     await prefs.setString("goalActivity", profile.activity.name);
     await prefs.setDouble("goalPaceKgPerWeek", profile.paceKgPerWeek);
     if (profile.manualKcal != null) {
@@ -416,6 +538,8 @@ class CalorieSummaryScreenModel {
     final proteinPick = plan.tapSuggestions.isNotEmpty
         ? plan.tapSuggestions.first
         : null;
+    final digests = await getDayDigests();
+    final streak = StreakMath.currentStreak(StreakMath.mealKeys(digests));
     await HomeWidgetSync.publish(
       consumedKcal: consumed.round(),
       budgetKcal: budget.toInt(),
@@ -430,6 +554,7 @@ class CalorieSummaryScreenModel {
       proteinTarget: plan.proteinTarget,
       proteinName: proteinPick?.nameDe ?? '',
       proteinFavoriteId: proteinPick?.favoriteId ?? '',
+      streak: streak,
     );
   }
 
@@ -449,10 +574,46 @@ class CalorieSummaryScreenModel {
     }).toList();
   }
 
+  Future<List<FavoriteMeal>> getRecentQuickMeals({int limit = QuickMeals.limit}) async {
+    await _initDbAndTable();
+    final meals = List<Map<String, dynamic>>.from(await db!.query('trackedMeals'));
+    meals.sort((a, b) {
+      final la = (a['loggedAt'] as num?)?.toInt() ?? 0;
+      final lb = (b['loggedAt'] as num?)?.toInt() ?? 0;
+      return lb.compareTo(la);
+    });
+    final seen = <String>{};
+    final out = <FavoriteMeal>[];
+    for (final meal in meals) {
+      final name = ((meal['name'] as String?) ?? '').trim();
+      final key = name.toLowerCase();
+      if (key.isEmpty || !seen.add(key)) continue;
+      final grams = (meal['weightInGrams'] as num?)?.toInt() ?? 0;
+      final per100 = (meal['kcalPer100g'] as num?)?.toInt() ?? 0;
+      if (grams <= 0 || per100 <= 0) continue;
+      out.add(
+        FavoriteMeal(
+          id: 'recent:${meal['id']}',
+          name: name,
+          kcalPer100g: per100,
+          weightInGrams: grams,
+          proteinG: (meal['proteinG'] as num?)?.toDouble() ?? 0,
+          breakdown: (meal['breakdown'] as String?) ?? '',
+          description: (meal['description'] as String?) ?? '',
+        ),
+      );
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+
   Future<List<FavoriteMeal>> getFavorites() async {
     await _initDbAndTable();
     final rows = await db!.query('favoriteMeals');
-    final list = rows.map(_favoriteFromRow).toList();
+    final list = <FavoriteMeal>[];
+    for (final row in rows) {
+      list.add(await _hydrateFavorite(_favoriteFromRow(row)));
+    }
     list.sort((a, b) {
       final uses = b.useCount.compareTo(a.useCount);
       if (uses != 0) return uses;
@@ -470,7 +631,49 @@ class CalorieSummaryScreenModel {
       proteinG: (row['proteinG'] as num?)?.toDouble() ?? 0,
       useCount: (row['useCount'] as num?)?.toInt() ?? 1,
       lastUsed: (row['lastUsed'] as num?)?.toInt() ?? 0,
+      breakdown: (row['breakdown'] as String?) ?? '',
+      description: (row['description'] as String?) ?? '',
     );
+  }
+
+  Future<FavoriteMeal> _hydrateFavorite(FavoriteMeal fav) async {
+    if (fav.breakdown.trim().isNotEmpty) return fav;
+    final recovered = await _latestMealMetaForName(fav.name);
+    if (recovered == null) return fav;
+    final next = fav.copyWith(
+      breakdown: recovered.$1,
+      description: recovered.$2.trim().isNotEmpty ? recovered.$2 : fav.description,
+    );
+    await db!.update(
+      'favoriteMeals',
+      {
+        if (next.breakdown.isNotEmpty) 'breakdown': next.breakdown,
+        if (next.description.isNotEmpty) 'description': next.description,
+      },
+      where: 'id = ?',
+      whereArgs: [fav.id],
+    );
+    return next;
+  }
+
+  Future<(String, String)?> _latestMealMetaForName(String name) async {
+    final key = name.trim().toLowerCase();
+    if (key.isEmpty) return null;
+    final meals = List<Map<String, dynamic>>.from(await db!.query('trackedMeals'));
+    meals.sort((a, b) {
+      final la = (a['loggedAt'] as num?)?.toInt() ?? 0;
+      final lb = (b['loggedAt'] as num?)?.toInt() ?? 0;
+      return lb.compareTo(la);
+    });
+    for (final meal in meals) {
+      final mealName = ((meal['name'] as String?) ?? '').trim().toLowerCase();
+      if (mealName != key) continue;
+      final breakdown = (meal['breakdown'] as String?) ?? '';
+      final description = (meal['description'] as String?) ?? '';
+      if (breakdown.trim().isEmpty && description.trim().isEmpty) continue;
+      return (breakdown, description);
+    }
+    return null;
   }
 
   Future<FavoriteMeal> upsertFavorite({
@@ -478,6 +681,8 @@ class CalorieSummaryScreenModel {
     required int kcalPer100g,
     required int weightInGrams,
     double proteinG = 0,
+    String? breakdown,
+    String? description,
   }) async {
     await _initDbAndTable();
     final cleaned = name.trim();
@@ -487,6 +692,8 @@ class CalorieSummaryScreenModel {
           cleaned.toLowerCase();
     });
     final now = DateTime.now().millisecondsSinceEpoch;
+    final nextBreakdown = (breakdown ?? '').trim();
+    final nextDescription = (description ?? '').trim();
     if (match.isNotEmpty) {
       final existing = _favoriteFromRow(match.first);
       final next = existing.copyWith(
@@ -494,6 +701,8 @@ class CalorieSummaryScreenModel {
         lastUsed: now,
         weightInGrams: weightInGrams,
         proteinG: proteinG,
+        breakdown: nextBreakdown.isNotEmpty ? nextBreakdown : existing.breakdown,
+        description: nextDescription.isNotEmpty ? nextDescription : existing.description,
       );
       await db!.update(
         'favoriteMeals',
@@ -503,6 +712,8 @@ class CalorieSummaryScreenModel {
           'proteinG': next.proteinG,
           'useCount': next.useCount,
           'lastUsed': next.lastUsed,
+          if (nextBreakdown.isNotEmpty) 'breakdown': next.breakdown,
+          if (nextDescription.isNotEmpty) 'description': next.description,
         },
         where: 'id = ?',
         whereArgs: [existing.id],
@@ -519,6 +730,8 @@ class CalorieSummaryScreenModel {
       proteinG: proteinG,
       useCount: 1,
       lastUsed: now,
+      breakdown: nextBreakdown,
+      description: nextDescription,
     );
     await db!.insert('favoriteMeals', {
       'id': fav.id,
@@ -528,22 +741,32 @@ class CalorieSummaryScreenModel {
       'proteinG': fav.proteinG,
       'useCount': fav.useCount,
       'lastUsed': fav.lastUsed,
+      'breakdown': fav.breakdown,
+      'description': fav.description,
     });
     await syncHomeWidget();
     return fav;
   }
 
-  Future<void> _bumpFavoriteIfKnown(String name) async {
+  Future<void> _bumpFavoriteIfKnown(
+    String name, {
+    String? breakdown,
+    String? description,
+  }) async {
     await _initDbAndTable();
     final rows = await db!.query('favoriteMeals');
     for (final row in rows) {
       final existing = (row['name'] as String?) ?? '';
       if (existing.trim().toLowerCase() != name.trim().toLowerCase()) continue;
+      final nextBreakdown = (breakdown ?? '').trim();
+      final nextDescription = (description ?? '').trim();
       await db!.update(
         'favoriteMeals',
         {
           'useCount': ((row['useCount'] as num?)?.toInt() ?? 1) + 1,
           'lastUsed': DateTime.now().millisecondsSinceEpoch,
+          if (nextBreakdown.isNotEmpty) 'breakdown': nextBreakdown,
+          if (nextDescription.isNotEmpty) 'description': nextDescription,
         },
         where: 'id = ?',
         whereArgs: [row['id']],
@@ -592,6 +815,39 @@ class CalorieSummaryScreenModel {
     photos.sort((a, b) => safeDate(b.dateKey).compareTo(safeDate(a.dateKey)));
     if (photos.length <= limit) return photos;
     return photos.sublist(0, limit);
+  }
+
+  Future<BackupRepository> _backupRepo() async {
+    await _initDbAndTable();
+    await _initSharedPreferences();
+    return BackupRepository(db!, sharedPreferences!);
+  }
+
+  Future<BackupCounts> backupCounts() async {
+    return (await _backupRepo()).counts();
+  }
+
+  Future<BackupRecord> backupRecord() async {
+    await _initSharedPreferences();
+    return BackupRepository.recordOf(sharedPreferences!);
+  }
+
+  Future<void> setBackupIncludePhotos(bool include) async {
+    await (await _backupRepo()).saveIncludePhotos(include);
+  }
+
+  Future<BackupSnapshot> createBackup({required bool includePhotos}) async {
+    return (await _backupRepo()).export(includePhotos: includePhotos);
+  }
+
+  Future<void> markBackupSaved(BackupSnapshot snapshot, int bytes) async {
+    await (await _backupRepo()).markSaved(snapshot, bytes);
+  }
+
+  Future<BackupCounts> restoreBackup(BackupSnapshot snapshot) async {
+    final counts = await (await _backupRepo()).restore(snapshot);
+    await syncHomeWidget();
+    return counts;
   }
 }
 

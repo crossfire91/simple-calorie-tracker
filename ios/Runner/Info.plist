@@ -50,7 +50,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Take Picture of your Food</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Plugin for Taking Pictures needs this permission</string>
+	<string>Speak what you ate so we can estimate calories.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Take Picture of your Food</string>
 </dict>

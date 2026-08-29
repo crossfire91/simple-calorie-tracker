@@ -128,9 +128,15 @@ object WidgetHub {
         over: Boolean,
     ) {
         val german = snapshot.german
+        val mealsToday = mealsToday(snapshot)
+        val atRisk = snapshot.streak > 0 && mealsToday <= 0
         views.setTextViewText(
             R.id.widget_title,
-            eyebrow(snapshot.coachMood, german),
+            when {
+                atRisk && german -> "Serie"
+                atRisk -> "Streak"
+                else -> eyebrow(snapshot.coachMood, german)
+            },
         )
         views.setTextViewText(
             R.id.widget_remaining,
@@ -149,6 +155,7 @@ object WidgetHub {
             context,
             when {
                 over -> R.color.widget_rose
+                atRisk -> R.color.widget_coral
                 snapshot.coachMood == "proteinPush" -> R.color.widget_coral
                 snapshot.coachMood == "morningOpen" -> R.color.widget_accent_soft
                 else -> R.color.widget_mint
@@ -157,6 +164,30 @@ object WidgetHub {
         views.setTextColor(R.id.widget_title, tone)
         views.setTextColor(R.id.widget_remaining, if (over) color(context, R.color.widget_rose) else color(context, R.color.widget_text))
         views.setTextColor(R.id.widget_label, tone)
+        bindStreak(context, views, snapshot, atRisk)
+    }
+
+    private fun bindStreak(
+        context: Context,
+        views: RemoteViews,
+        snapshot: CalorieWidgetStore.Snapshot,
+        atRisk: Boolean,
+    ) {
+        if (snapshot.streak <= 0) {
+            views.setViewVisibility(R.id.widget_streak, View.GONE)
+            return
+        }
+        views.setViewVisibility(R.id.widget_streak, View.VISIBLE)
+        views.setTextViewText(R.id.widget_streak, "🔥 ${snapshot.streak}")
+        views.setTextColor(
+            R.id.widget_streak,
+            color(context, if (atRisk) R.color.widget_coral else R.color.widget_mint),
+        )
+    }
+
+    private fun mealsToday(snapshot: CalorieWidgetStore.Snapshot): Int {
+        val isToday = snapshot.dateKey.isEmpty() || snapshot.dateKey == todayDateKey()
+        return if (isToday) snapshot.mealCount else 0
     }
 
     private fun bindProgress(views: RemoteViews, consumed: Int, budget: Int, over: Boolean) {

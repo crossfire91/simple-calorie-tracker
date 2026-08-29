@@ -19,18 +19,40 @@
         android:contentDescription="@null"
         android:src="@drawable/widget_accent_bar" />
 
-    <TextView
-        android:id="@+id/widget_title"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:ellipsize="end"
-        android:letterSpacing="0.12"
-        android:maxLines="1"
-        android:text="Heute"
-        android:textAllCaps="true"
-        android:textColor="@color/widget_text_faint"
-        android:textSize="11sp"
-        android:textStyle="bold" />
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/widget_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:letterSpacing="0.12"
+            android:maxLines="1"
+            android:text="Heute"
+            android:textAllCaps="true"
+            android:textColor="@color/widget_text_faint"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/widget_streak"
+            android:layout_width="wrap_content"
+            android:layout_height="24dp"
+            android:background="@drawable/widget_streak_chip"
+            android:gravity="center"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:text="🔥 4"
+            android:textColor="@color/widget_mint"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+    </LinearLayout>
 
     <TextView
         android:id="@+id/widget_remaining"

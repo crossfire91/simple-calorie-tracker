@@ -3,7 +3,23 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:simple_calorie_tracker/update/app_update_stub.dart'
     if (dart.library.io) 'package:simple_calorie_tracker/update/app_update_io.dart'
     as impl;
+import 'package:simple_calorie_tracker/update/update_lookup.dart';
 import 'package:simple_calorie_tracker/update/update_release.dart';
+
+class UpdateStatus {
+  final InstalledVersion installed;
+  final UpdateRelease? newer;
+  final bool checked;
+
+  const UpdateStatus({
+    required this.installed,
+    this.newer,
+    this.checked = false,
+  });
+
+  bool get isCurrent => checked && newer == null;
+  bool get hasUpdate => newer != null;
+}
 
 class AppUpdate {
   static const _skipKey = 'updateSkippedCode';
@@ -13,6 +29,22 @@ class AppUpdate {
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
   static Future<InstalledVersion> installed() => impl.installed();
+
+  static Future<UpdateStatus> status() async {
+    final current = await installed();
+    try {
+      final remote = await fetchNewestRelease();
+      if (remote == null) {
+        return UpdateStatus(installed: current, checked: false);
+      }
+      if (remote.isNewerVersionThan(current)) {
+        return UpdateStatus(installed: current, newer: remote, checked: true);
+      }
+      return UpdateStatus(installed: current, checked: true);
+    } catch (_) {
+      return UpdateStatus(installed: current, checked: false);
+    }
+  }
 
   static Future<UpdateRelease?> check({bool force = false}) {
     if (!isSupported) return Future.value(null);
