@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_name">Kalorien heute</string>
+    <string name="widget_description">Restkalorien und ein Tipp zum Eintragen vom Startbildschirm.</string>
+    <string name="widget_coach_name">Coach</string>
+    <string name="widget_coach_description">Uhrzeit-bewusster Satz, den du antippen kannst.</string>
+    <string name="widget_protein_name">Protein</string>
+    <string name="widget_protein_description">Protein heute, mit einem Favoriten zum Tippen.</string>
+</resources>
