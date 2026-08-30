@@ -1,9 +1,13 @@
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:simple_calorie_tracker/theme/app_colors.dart';
+
+final _decodedMealImages = LinkedHashMap<int, Uint8List>();
+const _decodedMealImageCap = 40;
 
 Uint8List? decodeMealImageBytes(dynamic raw) {
   if (raw == null) return null;
@@ -16,9 +20,17 @@ Uint8List? decodeMealImageBytes(dynamic raw) {
     return Uint8List.fromList(raw);
   }
   if (raw is String && raw.isNotEmpty) {
+    final key = Object.hash(raw.length, raw.hashCode);
+    final cached = _decodedMealImages[key];
+    if (cached != null) return cached;
     try {
       final bytes = base64Decode(raw);
-      return bytes.isEmpty ? null : bytes;
+      if (bytes.isEmpty) return null;
+      if (_decodedMealImages.length >= _decodedMealImageCap) {
+        _decodedMealImages.remove(_decodedMealImages.keys.first);
+      }
+      _decodedMealImages[key] = bytes;
+      return bytes;
     } catch (_) {
       return null;
     }
@@ -44,6 +56,7 @@ class MealImage extends StatelessWidget {
   final Uint8List? bytes;
   final BoxFit fit;
   final Widget? fallback;
+  final int? memCacheWidth;
 
   const MealImage({
     super.key,
@@ -51,6 +64,7 @@ class MealImage extends StatelessWidget {
     this.bytes,
     this.fit = BoxFit.cover,
     this.fallback,
+    this.memCacheWidth,
   });
 
   bool get hasImage {
@@ -60,18 +74,23 @@ class MealImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (bytes != null && bytes!.isNotEmpty) {
-      return Image.memory(
-        bytes!,
-        fit: fit,
-        gaplessPlayback: true,
-        errorBuilder: (_, __, ___) => fallback ?? const MealImageFallback(),
-      );
-    }
     if (!kIsWeb && (path?.isNotEmpty ?? false)) {
       return Image.file(
         File(path!),
         fit: fit,
+        cacheWidth: memCacheWidth,
+        gaplessPlayback: true,
+        filterQuality: FilterQuality.low,
+        errorBuilder: (_, __, ___) => fallback ?? const MealImageFallback(),
+      );
+    }
+    if (bytes != null && bytes!.isNotEmpty) {
+      return Image.memory(
+        bytes!,
+        fit: fit,
+        cacheWidth: memCacheWidth,
+        gaplessPlayback: true,
+        filterQuality: FilterQuality.low,
         errorBuilder: (_, __, ___) => fallback ?? const MealImageFallback(),
       );
     }

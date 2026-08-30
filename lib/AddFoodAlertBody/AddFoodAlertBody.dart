@@ -60,6 +60,7 @@ class AddFoodAlertBody extends StatefulWidget {
 class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
   TextEditingController kcalPer100gController = TextEditingController();
   TextEditingController foodWeightInGrams = TextEditingController();
+  final _totalKcalController = TextEditingController();
   final noteController = TextEditingController();
   Uint8List? imageOfFood;
   String? _error;
@@ -74,11 +75,13 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
   bool _listening = false;
   bool _imageChanged = false;
   bool _manualMenu = false;
+  bool _totalKcalMode = false;
   String? _originalNote;
   bool _showOriginal = false;
   final _photoCalories = PhotoCalorieService();
   final _voice = VoiceNoteRecorder();
   final _fieldsTick = ValueNotifier<int>(0);
+  final _liveEstimate = ValueNotifier<MealEstimate?>(null);
 
   @override
   void initState() {
@@ -93,12 +96,14 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
     noteController.addListener(_tickFields);
     foodWeightInGrams.addListener(_tickFields);
     kcalPer100gController.addListener(_tickFields);
+    _totalKcalController.addListener(_tickFields);
     final savedNote = widget.initialDescription?.trim();
     if (savedNote != null && savedNote.isNotEmpty) {
       _originalNote = savedNote;
     }
     if (widget.initialEstimate != null) {
       _estimate = widget.initialEstimate!.copyWith(clearClarification: true);
+      _liveEstimate.value = _estimate;
       _clarificationUsed = true;
     }
     if (widget.startWithCamera) {
@@ -130,6 +135,7 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
       _imageChanged = true;
       if (!widget.editMode) {
         _estimate = null;
+        _liveEstimate.value = null;
         _manualMenu = false;
         _error = null;
         _status = null;
@@ -195,6 +201,7 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
     } catch (error) {
       if (!mounted) return;
       _estimate = null;
+      _liveEstimate.value = null;
       _manualMenu = false;
       _error = S.of(context).lookupError(error.toString());
       _status = null;
@@ -221,6 +228,7 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
     if (image != null && image.isNotEmpty) {
       imageOfFood = image;
     }
+    _syncTotalFromDensity();
   }
 
   Future<void> _applyFavorite(FavoriteMeal meal) async {
@@ -235,6 +243,7 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
     _showOriginal = false;
     final estimate = MealEstimate.decodeForGrams(meal.breakdown, meal.weightInGrams);
     _estimate = estimate?.copyWith(clearClarification: true);
+    _liveEstimate.value = _estimate;
     _manualMenu = false;
     _clarificationUsed = estimate != null;
     if (estimate != null) _estimateRevision++;
@@ -303,6 +312,7 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
     setState(() {
       _clarificationUsed = true;
       _estimate = _estimate?.copyWith(clearClarification: true);
+      _liveEstimate.value = _estimate;
     });
   }
 
@@ -319,6 +329,7 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
       clarification: clarification,
       clearClarification: clarification == null,
     );
+    _liveEstimate.value = _estimate;
     _syncTotalsFromEstimate(_estimate!, fillGramsIfEmpty: true);
     _applyShortTitle(estimate);
     final s = S.of(context);
@@ -346,6 +357,7 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
     return noteController.text.trim().isNotEmpty ||
         foodWeightInGrams.text.trim().isNotEmpty ||
         kcalPer100gController.text.trim().isNotEmpty ||
+        _totalKcalController.text.trim().isNotEmpty ||
         imageOfFood != null ||
         _estimate != null ||
         _error != null ||
@@ -367,17 +379,20 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
     noteController.clear();
     foodWeightInGrams.clear();
     kcalPer100gController.clear();
+    _totalKcalController.clear();
     setState(() {
       imageOfFood = null;
       _error = null;
       _status = null;
       _estimate = null;
+      _liveEstimate.value = null;
       _pinFavorite = false;
       _clarificationUsed = false;
       _clarificationNote = null;
       _estimateRevision++;
       _imageChanged = false;
       _manualMenu = false;
+      _totalKcalMode = false;
       _originalNote = null;
       _showOriginal = false;
     });
@@ -388,10 +403,13 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
     noteController.removeListener(_tickFields);
     foodWeightInGrams.removeListener(_tickFields);
     kcalPer100gController.removeListener(_tickFields);
+    _totalKcalController.removeListener(_tickFields);
     kcalPer100gController.dispose();
     foodWeightInGrams.dispose();
+    _totalKcalController.dispose();
     noteController.dispose();
     _fieldsTick.dispose();
+    _liveEstimate.dispose();
     _voice.dispose();
     super.dispose();
   }
@@ -403,6 +421,64 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
     if (!widget.addServingMode && estimate.items.isNotEmpty) {
       kcalPer100gController.text = estimate.kcalPer100g.toString();
     }
+    _syncTotalFromDensity();
+  }
+
+  void _syncTotalFromDensity() {
+    final plate = _densityPlateKcal;
+    if (plate != null) {
+      _totalKcalController.text = plate.toString();
+    }
+  }
+
+  int? get _typedTotalKcal {
+    final value = int.tryParse(_totalKcalController.text.trim());
+    if (value == null || value < 0) return null;
+    return value;
+  }
+
+  int? get _densityPlateKcal {
+    final grams = int.tryParse(foodWeightInGrams.text.trim());
+    final per100 = widget.kcalPer100gOverride ??
+        int.tryParse(kcalPer100gController.text.trim());
+    if (grams == null || grams <= 0 || per100 == null || per100 < 0) return null;
+    return ((per100 * grams) / 100).round();
+  }
+
+  (int, int)? get _resolvedTotals {
+    if (_totalKcalMode) {
+      final total = _typedTotalKcal;
+      if (total == null) return null;
+      final grams = _knownGrams ?? 100;
+      return (((total * 100) / grams).round(), grams);
+    }
+    final grams = int.tryParse(foodWeightInGrams.text.trim());
+    final per100 = widget.kcalPer100gOverride ??
+        int.tryParse(kcalPer100gController.text.trim());
+    if (grams == null || grams <= 0 || per100 == null || per100 < 0) return null;
+    return (per100, grams);
+  }
+
+  void _toggleTotalKcalMode() {
+    setState(() {
+      if (_totalKcalMode) {
+        final total = _typedTotalKcal;
+        final grams = _knownGrams;
+        if (total != null && grams != null) {
+          kcalPer100gController.text = ((total * 100) / grams).round().toString();
+        } else if (total != null) {
+          foodWeightInGrams.text = '100';
+          kcalPer100gController.text = total.toString();
+        }
+        _totalKcalMode = false;
+      } else {
+        final plate = _densityPlateKcal;
+        if (plate != null) {
+          _totalKcalController.text = plate.toString();
+        }
+        _totalKcalMode = true;
+      }
+    });
   }
 
   Future<void> _toggleVoice() async {
@@ -444,6 +520,7 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
       } catch (error) {
         if (!mounted) return;
         _estimate = null;
+        _liveEstimate.value = null;
         _manualMenu = false;
         _error = S.of(context).lookupError(error.toString());
         _status = null;
@@ -522,36 +599,39 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
   void _onEstimateEdited(MealEstimate next) {
     final structureChanged = next.items.length != _estimate!.items.length ||
         next.unmatchedItems.length != _estimate!.unmatchedItems.length;
-    setState(() {
-      if (structureChanged) _estimateRevision++;
-      _estimate = next;
-      _syncTotalsFromEstimate(next, fillGramsIfEmpty: false);
-      if (next.items.isNotEmpty) {
-        _error = next.unmatched.isEmpty ? null : S.of(context).noMatchEnergyOnly(next.unmatched.join(', '));
-        _status = next.mealName;
-      }
-    });
+    if (structureChanged) _estimateRevision++;
+    _estimate = next;
+    _syncTotalsFromEstimate(next, fillGramsIfEmpty: false);
+    var chromeChanged = false;
+    if (next.items.isNotEmpty) {
+      final nextError =
+          next.unmatched.isEmpty ? null : S.of(context).noMatchEnergyOnly(next.unmatched.join(', '));
+      chromeChanged = nextError != _error || next.mealName != _status;
+      _error = nextError;
+      _status = next.mealName;
+    }
+    _liveEstimate.value = next;
+    _fieldsTick.value++;
+    if (chromeChanged || structureChanged) setState(() {});
   }
 
   int? get _plateKcal {
-    final grams = int.tryParse(foodWeightInGrams.text.trim());
-    final per100 = widget.kcalPer100gOverride ??
-        int.tryParse(kcalPer100gController.text.trim());
-    if (grams == null || grams <= 0 || per100 == null || per100 < 0) return null;
-    return ((per100 * grams) / 100).round();
+    if (_totalKcalMode) return _typedTotalKcal;
+    return _densityPlateKcal;
   }
 
   void _submit() {
-    if (foodWeightInGrams.text.trim().isEmpty ||
-        (!widget.addServingMode && kcalPer100gController.text.trim().isEmpty)) {
-      setState(() => _error = S.of(context).weightAndEnergy);
+    final totals = _resolvedTotals;
+    if (totals == null) {
+      setState(() => _error = _totalKcalMode
+          ? S.of(context).enterCaloriesFirst
+          : S.of(context).weightAndEnergy);
       return;
     }
     setState(() => _error = null);
 
-    final per100 = widget.kcalPer100gOverride ??
-        int.parse(kcalPer100gController.text);
-    final grams = int.parse(foodWeightInGrams.text);
+    final per100 = totals.$1;
+    final grams = totals.$2;
     final typed = noteController.text.trim();
     final source = _lookupNote;
     final title = typed.isNotEmpty && typed.length <= mealTitleMaxChars
@@ -673,15 +753,34 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
               const SizedBox(width: 10),
               Expanded(
                 child: AppTextField(
-                  controller: kcalPer100gController,
-                  label: s.energy,
-                  suffix: s.kcalPer100g,
+                  controller: _totalKcalMode ? _totalKcalController : kcalPer100gController,
+                  label: _totalKcalMode ? s.totalEnergy : s.energy,
+                  suffix: _totalKcalMode ? s.kcalHint : s.kcalPer100g,
                   icon: Icons.local_fire_department_rounded,
                 ),
               ),
             ],
           ],
         ),
+        if (!widget.addServingMode)
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              key: const Key('total-kcal-mode'),
+              onPressed: _analyzing ? null : _toggleTotalKcalMode,
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.textFaint,
+                visualDensity: VisualDensity.compact,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+                minimumSize: Size.zero,
+              ),
+              child: Text(
+                _totalKcalMode ? s.orKcalPer100g : s.orTotalKcal,
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
         if (_status != null) ...[
           const SizedBox(height: 10),
           Align(
@@ -704,14 +803,20 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
         ],
         if (_estimate != null) ...[
           const SizedBox(height: 12),
-          _EstimateBreakdown(
-            estimate: _estimate!,
-            revision: _estimateRevision,
-            enabled: !_analyzing,
-            manual: _manualMenu,
-            onChanged: _onEstimateEdited,
-            onLookup: _lookupMenu,
-            onAdd: () => _onEstimateEdited(_estimate!.addUnmatched()),
+          ValueListenableBuilder<MealEstimate?>(
+            valueListenable: _liveEstimate,
+            builder: (context, estimate, _) {
+              final live = estimate ?? _estimate!;
+              return _EstimateBreakdown(
+                estimate: live,
+                revision: _estimateRevision,
+                enabled: !_analyzing,
+                manual: _manualMenu,
+                onChanged: _onEstimateEdited,
+                onLookup: _lookupMenu,
+                onAdd: () => _onEstimateEdited(live.addUnmatched()),
+              );
+            },
           ),
           if (_estimate!.clarification != null) ...[
             const SizedBox(height: 10),
@@ -727,6 +832,7 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
         const SizedBox(height: 14),
         GestureDetector(
           onTap: _analyzing ? null : () => _pick(kIsWeb ? ImageSource.gallery : ImageSource.camera),
+          child: RepaintBoundary(
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 220),
             height: 132,
@@ -735,13 +841,8 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
               color: AppColors.surfaceInput,
               borderRadius: BorderRadius.circular(18),
               border: Border.all(color: AppColors.strokeStrong),
-              image: imageOfFood == null
-                  ? null
-                  : DecorationImage(
-                      image: MemoryImage(imageOfFood!),
-                      fit: BoxFit.cover,
-                    ),
             ),
+            clipBehavior: Clip.antiAlias,
             child: imageOfFood == null
                 ? Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -763,7 +864,15 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
                     ],
                   )
                 : Stack(
+                    fit: StackFit.expand,
                     children: [
+                      Image.memory(
+                        imageOfFood!,
+                        fit: BoxFit.cover,
+                        cacheWidth: 900,
+                        gaplessPlayback: true,
+                        filterQuality: FilterQuality.low,
+                      ),
                       if (_analyzing)
                         Container(
                           decoration: BoxDecoration(
@@ -784,6 +893,7 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
                                     _imageChanged = true;
                                     if (!widget.editMode) {
                                       _estimate = null;
+                                      _liveEstimate.value = null;
                                       _manualMenu = false;
                                       _status = null;
                                       _clarificationUsed = false;
@@ -821,6 +931,7 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
                       ),
                     ],
                   ),
+          ),
           ),
         ),
         const SizedBox(height: 10),

@@ -335,6 +335,11 @@ class S {
   String get energy => _t('Energy', 'Energie');
   String get gramsHint => _t('g', 'g');
   String get kcalPer100g => _t('kcal / 100g', 'kcal / 100g');
+  String get orTotalKcal => _t('or total kcal', 'oder Gesamt-kcal');
+  String get orKcalPer100g => _t('or kcal / 100g', 'oder kcal / 100g');
+  String get totalEnergy => _t('Total', 'Gesamt');
+  String get kcalHint => _t('kcal', 'kcal');
+  String get enterCaloriesFirst => _t('Enter calories first.', 'Zuerst die Kalorien eintragen.');
   String get whatIsIt => _t('What are you eating?', 'Was isst du?');
   String get whatIsItHint => _t('pizza, salad, döner', 'Pizza, Salat, Döner');
   String get mealTitle => _t('Title', 'Titel');

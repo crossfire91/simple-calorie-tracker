@@ -412,6 +412,71 @@ void main() {
     expect(find.byKey(const Key('reset-meal')), findsNothing);
   });
 
+  testWidgets('total kcal is a quiet alternative to kcal per 100g', (tester) async {
+    MealDraft? logged;
+    await tester.pumpWidget(
+      _wrap(
+        AddFoodAlertBody(
+          onAddFood: (draft) async => logged = draft,
+        ),
+      ),
+    );
+
+    expect(find.text('oder Gesamt-kcal'), findsOneWidget);
+    expect(find.text('kcal / 100g'), findsOneWidget);
+    expect(find.text('Gesamt'), findsNothing);
+
+    await tester.tap(find.byKey(const Key('total-kcal-mode')));
+    await tester.pump();
+
+    expect(find.text('Gesamt'), findsOneWidget);
+    expect(find.text('oder kcal / 100g'), findsOneWidget);
+    expect(find.text('kcal / 100g'), findsNothing);
+
+    final fields = find.byType(TextField);
+    await tester.enterText(fields.at(0), 'Pizza');
+    await tester.enterText(fields.at(2), '650');
+    await tester.pump();
+
+    expect(find.textContaining('Teller eintragen · 650 kcal'), findsOneWidget);
+
+    await tester.ensureVisible(find.textContaining('Teller eintragen'));
+    await tester.tap(find.textContaining('Teller eintragen'));
+    await tester.pump();
+
+    expect(logged?.name, 'Pizza');
+    expect(logged?.kcal, 650);
+    expect(logged?.weightInGrams, 100);
+    expect(logged?.kcalPer100g, 650);
+  });
+
+  testWidgets('total kcal with a weight stores matching density', (tester) async {
+    MealDraft? logged;
+    await tester.pumpWidget(
+      _wrap(
+        AddFoodAlertBody(
+          onAddFood: (draft) async => logged = draft,
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('total-kcal-mode')));
+    await tester.pump();
+
+    final fields = find.byType(TextField);
+    await tester.enterText(fields.at(1), '200');
+    await tester.enterText(fields.at(2), '500');
+    await tester.pump();
+
+    await tester.ensureVisible(find.textContaining('Teller eintragen'));
+    await tester.tap(find.textContaining('Teller eintragen'));
+    await tester.pump();
+
+    expect(logged?.kcal, 500);
+    expect(logged?.weightInGrams, 200);
+    expect(logged?.kcalPer100g, 250);
+  });
+
   testWidgets('reset is hidden while editing a saved meal', (tester) async {
     await tester.pumpWidget(
       _wrap(

@@ -14,4 +14,12 @@ void main() {
     expect(decodeMealImageBytes(null), isNull);
     expect(decodeMealImageBytes(Uint8List(0)), isNull);
   });
+
+  test('decodeMealImageBytes reuses a decoded base64 blob', () {
+    final raw = Uint8List.fromList([9, 8, 7, 6]);
+    final encoded = base64Encode(raw);
+    final first = decodeMealImageBytes(encoded);
+    final again = decodeMealImageBytes(encoded);
+    expect(identical(first, again), isTrue);
+  });
 }

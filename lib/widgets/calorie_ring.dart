@@ -37,7 +37,9 @@ class CalorieRing extends StatefulWidget {
 class _CalorieRingState extends State<CalorieRing> with TickerProviderStateMixin {
   late final AnimationController _pulse;
   late final AnimationController _select;
+  late final AnimationController _intro;
   double _from = 0;
+  int _fillMs = 1260;
   int? _internal;
   int? _painted;
   bool _panned = false;
@@ -58,7 +60,6 @@ class _CalorieRingState extends State<CalorieRing> with TickerProviderStateMixin
   @override
   void initState() {
     super.initState();
-    _from = _progressOf(widget.consumed, widget.budget);
     _pulse = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 900),
@@ -72,6 +73,10 @@ class _CalorieRingState extends State<CalorieRing> with TickerProviderStateMixin
           setState(() => _painted = null);
         }
       });
+    _intro = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 920),
+    )..forward();
     if (widget.celebrate) {
       _pulse.forward();
     }
@@ -113,6 +118,7 @@ class _CalorieRingState extends State<CalorieRing> with TickerProviderStateMixin
   void dispose() {
     _pulse.dispose();
     _select.dispose();
+    _intro.dispose();
     super.dispose();
   }
 
@@ -190,93 +196,112 @@ class _CalorieRingState extends State<CalorieRing> with TickerProviderStateMixin
 
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: _from, end: displayProgress),
-      duration: const Duration(milliseconds: 980),
+      duration: Duration(milliseconds: _fillMs),
       curve: Curves.easeOutCubic,
+      onEnd: () {
+        if (_fillMs != 980) _fillMs = 980;
+      },
       builder: (context, value, child) {
         return AnimatedBuilder(
-          animation: Listenable.merge([_pulse, _select]),
+          animation: Listenable.merge([_pulse, _select, _intro]),
           builder: (context, _) {
             final beat = closed ? 1 + (_pulse.value * 0.035) : 1.0;
             final lift = Curves.easeOutCubic.transform(_select.value);
+            final wake = Curves.easeOutCubic.transform(_intro.value);
+            final fade = Curves.easeOut.transform((_intro.value / 0.4).clamp(0.0, 1.0));
+            final fillT = displayProgress <= 0.0001
+                ? 1.0
+                : (value / displayProgress).clamp(0.0, 1.0);
+            final shownConsumed = widget.consumed * fillT;
+            final shownRemaining = widget.budget - shownConsumed;
+            final shownOver = shownRemaining < 0;
+            final shownClosed = widget.budget > 0 && shownConsumed >= widget.budget && !shownOver;
             return SizedBox(
               width: 208,
               height: 220,
               child: Stack(
                 alignment: Alignment.center,
                 children: [
-                  Transform.scale(
-                    scale: beat,
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTapDown: (_) => _panned = false,
-                      onTapUp: (details) {
-                        if (_panned) return;
-                        _onTap(details.localPosition, const Size(200, 200), slices, value);
-                      },
-                      onPanStart: (details) {
-                        final hit = MealRingMath.hit(
-                          local: details.localPosition,
+                  Opacity(
+                    opacity: fade,
+                    child: Transform.scale(
+                      scale: (0.92 + 0.08 * wake) * beat,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTapDown: (_) => _panned = false,
+                        onTapUp: (details) {
+                          if (_panned) return;
+                          _onTap(details.localPosition, const Size(200, 200), slices, value);
+                        },
+                        onPanStart: (details) {
+                          final hit = MealRingMath.hit(
+                            local: details.localPosition,
+                            size: const Size(200, 200),
+                            slices: slices,
+                            reveal: value,
+                          );
+                          _panned = hit != null && hit != RingHit.center;
+                        },
+                        onPanUpdate: (details) {
+                          if (!_panned) return;
+                          _onPan(details.localPosition, const Size(200, 200), slices, value);
+                        },
+                        child: CustomPaint(
                           size: const Size(200, 200),
-                          slices: slices,
-                          reveal: value,
-                        );
-                        _panned = hit != null && hit != RingHit.center;
-                      },
-                      onPanUpdate: (details) {
-                        if (!_panned) return;
-                        _onPan(details.localPosition, const Size(200, 200), slices, value);
-                      },
-                      child: CustomPaint(
-                        size: const Size(200, 200),
-                        painter: _RingPainter(
-                          progress: value,
-                          ghost: ghostProgress,
-                          over: over,
-                          closed: closed,
-                          slices: slices,
-                          selectedIndex: _painted,
-                          selection: lift,
+                          painter: _RingPainter(
+                            progress: value,
+                            ghost: ghostProgress * wake,
+                            over: shownOver,
+                            closed: shownClosed,
+                            slices: slices,
+                            selectedIndex: _painted,
+                            selection: lift,
+                            awake: wake,
+                          ),
                         ),
                       ),
                     ),
                   ),
                   if (widget.celebrate) const Positioned.fill(child: IgnorePointer(child: RingBurst())),
                   IgnorePointer(
-                    child: SizedBox(
-                      width: 138,
-                      child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 260),
-                        switchInCurve: Curves.easeOutCubic,
-                        switchOutCurve: Curves.easeInCubic,
-                        transitionBuilder: (child, animation) => FadeTransition(
-                          opacity: animation,
-                          child: ScaleTransition(
-                            scale: Tween(begin: 0.92, end: 1.0).animate(animation),
-                            child: child,
+                    child: Opacity(
+                      opacity: fade,
+                      child: SizedBox(
+                        width: 138,
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 260),
+                          switchInCurve: Curves.easeOutCubic,
+                          switchOutCurve: Curves.easeInCubic,
+                          transitionBuilder: (child, animation) => FadeTransition(
+                            opacity: animation,
+                            child: ScaleTransition(
+                              scale: Tween(begin: 0.92, end: 1.0).animate(animation),
+                              child: child,
+                            ),
                           ),
+                          child: leftoverFocused && leftoverOpen
+                              ? _RingLeftoverFocus(
+                                  key: const ValueKey('leftover'),
+                                  remaining: remaining,
+                                  budget: widget.budget,
+                                )
+                              : selectedMeal == null
+                                  ? _RingRest(
+                                      key: const ValueKey('rest'),
+                                      remaining: shownRemaining,
+                                      over: shownOver,
+                                      closed: shownClosed,
+                                      consumed: shownConsumed,
+                                      budget: widget.budget,
+                                      ghostConsumed: widget.ghostConsumed * wake,
+                                    )
+                                  : _RingMealFocus(
+                                      key: ValueKey('meal-$_selected'),
+                                      meal: selectedMeal,
+                                      budget: widget.budget,
+                                      color: AppColors.mealSwatch(_selected!),
+                                    ),
                         ),
-                        child: leftoverFocused && leftoverOpen
-                            ? _RingLeftoverFocus(
-                                key: const ValueKey('leftover'),
-                                remaining: remaining,
-                                budget: widget.budget,
-                              )
-                            : selectedMeal == null
-                                ? _RingRest(
-                                    key: const ValueKey('rest'),
-                                    remaining: remaining,
-                                    over: over,
-                                    closed: closed,
-                                    consumed: widget.consumed,
-                                    budget: widget.budget,
-                                    ghostConsumed: widget.ghostConsumed,
-                                  )
-                                : _RingMealFocus(
-                                    key: ValueKey('meal-$_selected'),
-                                    meal: selectedMeal,
-                                    budget: widget.budget,
-                                    color: AppColors.mealSwatch(_selected!),
-                                  ),
                       ),
                     ),
                   ),
@@ -314,12 +339,15 @@ class _RingRest extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          remaining.abs().toStringAsFixed(0),
-          style: Theme.of(context).textTheme.displayLarge?.copyWith(
-                fontSize: 40,
-                color: over ? AppColors.coralSoft : AppColors.text,
-              ),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            remaining.abs().toStringAsFixed(0),
+            style: Theme.of(context).textTheme.displayLarge?.copyWith(
+                  fontSize: 40,
+                  color: over ? AppColors.coralSoft : AppColors.text,
+                ),
+          ),
         ),
         const SizedBox(height: 4),
         Text(
@@ -394,31 +422,34 @@ class _RingLeftoverFocus extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              remaining.toStringAsFixed(0),
-              style: Theme.of(context).textTheme.displayLarge?.copyWith(
-                    fontSize: 38,
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                remaining.toStringAsFixed(0),
+                style: Theme.of(context).textTheme.displayLarge?.copyWith(
+                      fontSize: 38,
+                      height: 1,
+                      color: AppColors.accentSoft,
+                    ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(left: 3, bottom: 3),
+                child: Text(
+                  'kcal',
+                  style: TextStyle(
+                    color: AppColors.accentSoft.withOpacity(0.7),
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
                     height: 1,
-                    color: AppColors.accentSoft,
                   ),
-            ),
-            Padding(
-              padding: const EdgeInsets.only(left: 3, bottom: 3),
-              child: Text(
-                'kcal',
-                style: TextStyle(
-                  color: AppColors.accentSoft.withOpacity(0.7),
-                  fontSize: 9,
-                  fontWeight: FontWeight.w700,
-                  height: 1,
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         const SizedBox(height: 3),
         Text(
@@ -484,48 +515,52 @@ class _RingMealFocus extends StatelessWidget {
               ),
             ),
           ),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (meal.hasPhoto) ...[
-              Container(
-                width: 26,
-                height: 26,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: color, width: 1.6),
-                  boxShadow: [BoxShadow(color: color.withOpacity(0.35), blurRadius: 8)],
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: MealImage(
-                  path: meal.photoPath,
-                  bytes: meal.photoBytes,
-                  fallback: Icon(Icons.restaurant_rounded, color: color, size: 13),
-                ),
-              ),
-              const SizedBox(width: 7),
-            ],
-            Text(
-              meal.kcal.toStringAsFixed(0),
-              style: Theme.of(context).textTheme.displayLarge?.copyWith(
-                    fontSize: meal.hasPhoto ? 32 : 38,
-                    height: 1,
-                    color: color,
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (meal.hasPhoto) ...[
+                Container(
+                  width: 26,
+                  height: 26,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: color, width: 1.6),
+                    boxShadow: [BoxShadow(color: color.withOpacity(0.35), blurRadius: 8)],
                   ),
-            ),
-            Padding(
-              padding: const EdgeInsets.only(left: 3, bottom: 3),
-              child: Text(
-                'kcal',
-                style: TextStyle(
-                  color: color.withOpacity(0.7),
-                  fontSize: 9,
-                  fontWeight: FontWeight.w700,
-                  height: 1,
+                  clipBehavior: Clip.antiAlias,
+                  child: MealImage(
+                    path: meal.photoPath,
+                    bytes: meal.photoBytes,
+                    memCacheWidth: 80,
+                    fallback: Icon(Icons.restaurant_rounded, color: color, size: 13),
+                  ),
+                ),
+                const SizedBox(width: 7),
+              ],
+              Text(
+                meal.kcal.toStringAsFixed(0),
+                style: Theme.of(context).textTheme.displayLarge?.copyWith(
+                      fontSize: meal.hasPhoto ? 32 : 38,
+                      height: 1,
+                      color: color,
+                    ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(left: 3, bottom: 3),
+                child: Text(
+                  'kcal',
+                  style: TextStyle(
+                    color: color.withOpacity(0.7),
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    height: 1,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         const SizedBox(height: 4),
         Text(
@@ -563,6 +598,7 @@ class _RingPainter extends CustomPainter {
   final List<MealRingSlice> slices;
   final int? selectedIndex;
   final double selection;
+  final double awake;
 
   static const _trackColor = Color(0xFF243044);
 
@@ -574,6 +610,7 @@ class _RingPainter extends CustomPainter {
     this.slices = const [],
     this.selectedIndex,
     this.selection = 0,
+    this.awake = 1,
   });
 
   @override
@@ -609,7 +646,7 @@ class _RingPainter extends CustomPainter {
     final glow = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 22
-      ..color = glowColor.withOpacity(closed ? 0.28 : 0.16 + 0.12 * selection)
+      ..color = glowColor.withOpacity((closed ? 0.28 : 0.16 + 0.12 * selection) * awake)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12);
     canvas.drawCircle(center, radius, glow);
 
@@ -953,6 +990,7 @@ class _RingPainter extends CustomPainter {
         oldDelegate.closed != closed ||
         oldDelegate.selectedIndex != selectedIndex ||
         oldDelegate.selection != selection ||
+        oldDelegate.awake != awake ||
         oldDelegate.slices.length != slices.length) {
       return true;
     }

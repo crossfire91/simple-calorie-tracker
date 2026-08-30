@@ -141,6 +141,24 @@ void main() {
     expect(find.text('FAVORITEN'), findsOneWidget);
   });
 
+  testWidgets('ring fills leftover from empty on first appearance', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        const CalorieRing(
+          consumed: 800,
+          budget: 2200,
+        ),
+      ),
+    );
+    expect(find.text('800 / 2200'), findsNothing);
+    expect(find.text('1400'), findsNothing);
+
+    await tester.pumpAndSettle();
+
+    expect(find.text('1400'), findsOneWidget);
+    expect(find.text('800 / 2200'), findsOneWidget);
+  });
+
   testWidgets('ring shows leftover kcal and yesterday ghost', (tester) async {
     await tester.pumpWidget(
       _wrap(

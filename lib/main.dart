@@ -6,6 +6,7 @@ import 'package:simple_calorie_tracker/l10n/app_lang.dart';
 import 'package:simple_calorie_tracker/platform/database_setup.dart'
     if (dart.library.html) 'package:simple_calorie_tracker/platform/database_setup_web.dart';
 import 'package:simple_calorie_tracker/theme/app_theme.dart';
+import 'package:simple_calorie_tracker/theme/grip_scroll.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,6 +32,7 @@ class CalorieApp extends StatelessWidget {
           return MaterialApp(
             debugShowCheckedModeBanner: false,
             theme: AppTheme.dark(),
+            scrollBehavior: const GripScrollBehavior(),
             locale: localeController.locale,
             supportedLocales: const [Locale('en'), Locale('de')],
             localizationsDelegates: const [

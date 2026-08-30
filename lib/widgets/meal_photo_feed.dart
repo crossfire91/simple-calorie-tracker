@@ -139,18 +139,24 @@ class _PhotoFace extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!kIsWeb && photo.imagePath.isNotEmpty) {
+      return Image.file(
+        File(photo.imagePath),
+        fit: BoxFit.cover,
+        cacheWidth: 640,
+        gaplessPlayback: true,
+        filterQuality: FilterQuality.low,
+        errorBuilder: (_, __, ___) => const _PhotoFallback(),
+      );
+    }
     final bytes = photo.imageBytes;
     if (bytes != null && bytes.isNotEmpty) {
       return Image.memory(
         bytes,
         fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => const _PhotoFallback(),
-      );
-    }
-    if (!kIsWeb && photo.imagePath.isNotEmpty) {
-      return Image.file(
-        File(photo.imagePath),
-        fit: BoxFit.cover,
+        cacheWidth: 640,
+        gaplessPlayback: true,
+        filterQuality: FilterQuality.low,
         errorBuilder: (_, __, ___) => const _PhotoFallback(),
       );
     }

@@ -106,6 +106,7 @@ class MealCard extends StatelessWidget {
                       child: MealImage(
                         path: photoPath,
                         bytes: photoBytes,
+                        memCacheWidth: 160,
                         fallback: const Center(
                           child: Icon(Icons.restaurant_rounded, color: Colors.white, size: 24),
                         ),

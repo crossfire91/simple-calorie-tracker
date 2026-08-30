@@ -62,7 +62,7 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
   bool _celebrate = false;
   bool _hasGemini = false;
   bool _newestMealsFirst = true;
-  int? _ringFocus;
+  final ValueNotifier<int?> _ringFocus = ValueNotifier<int?>(null);
   UpdateStatus? _updateStatus;
 
   updateChart() {
@@ -138,18 +138,18 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
 
   Future<void> _selectDate(DateTime date) async {
     selectedDate = date;
-    _ringFocus = null;
+    _ringFocus.value = null;
     setState(() {});
     currentDaysItems = await widget.observer.getDaysItems(date);
     updateChart();
   }
 
   void _setRingFocus(int? next) {
-    setState(() => _ringFocus = next);
+    _ringFocus.value = next;
   }
 
   void _toggleRingFocus(int mealIndex) {
-    _setRingFocus(_ringFocus == mealIndex ? null : mealIndex);
+    _setRingFocus(_ringFocus.value == mealIndex ? null : mealIndex);
   }
 
   Future<void> _setMealSortNewest(bool newest) async {
@@ -654,8 +654,17 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
     asyncTaks();
   }
 
+  ({String? path, Uint8List? bytes}) _thumbFor(dynamic photo) {
+    if (photo is! Map) return (path: null, bytes: null);
+    final row = Map<String, dynamic>.from(photo);
+    final path = row['imagePath'] as String?;
+    if (path != null && path.isNotEmpty) return (path: path, bytes: null);
+    return (path: null, bytes: decodeMealImageBytes(row));
+  }
+
   @override
   void dispose() {
+    _ringFocus.dispose();
     HomeWidgetSync.stop();
     super.dispose();
   }
@@ -696,13 +705,13 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
               : null,
           photoPath: () {
             final photos = (item['mealImages'] ?? []) as List;
-            if (photos.isEmpty || photos.first is! Map) return null;
-            return Map<String, dynamic>.from(photos.first as Map)['imagePath'] as String?;
+            if (photos.isEmpty) return null;
+            return _thumbFor(photos.first).path;
           }(),
           photoBytes: () {
             final photos = (item['mealImages'] ?? []) as List;
-            if (photos.isEmpty || photos.first is! Map) return null;
-            return decodeMealImageBytes(Map<String, dynamic>.from(photos.first as Map));
+            if (photos.isEmpty) return null;
+            return _thumbFor(photos.first).bytes;
           }(),
         ),
     ];
@@ -808,6 +817,7 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
                   ),
                   Expanded(
                     child: CustomScrollView(
+                      cacheExtent: 320,
                       slivers: [
                         SliverToBoxAdapter(
                           child: Padding(
@@ -818,14 +828,19 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
                                 RelativeDayChip(date: selectedDate),
                                 const SizedBox(height: 10),
                                 FittedBox(
-                                  child: CalorieRing(
-                                    consumed: totalKcalConsumed,
-                                    budget: kcalBudget,
-                                    ghostConsumed: _yesterdayKcal,
-                                    celebrate: _celebrate,
-                                    meals: ringMeals,
-                                    focus: _ringFocus,
-                                    onFocus: _setRingFocus,
+                                  child: ValueListenableBuilder<int?>(
+                                    valueListenable: _ringFocus,
+                                    builder: (context, focus, _) {
+                                      return CalorieRing(
+                                        consumed: totalKcalConsumed,
+                                        budget: kcalBudget,
+                                        ghostConsumed: _yesterdayKcal,
+                                        celebrate: _celebrate,
+                                        meals: ringMeals,
+                                        focus: focus,
+                                        onFocus: _setRingFocus,
+                                      );
+                                    },
                                   ),
                                 ),
                               ],
@@ -885,11 +900,7 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
                                   final per100 = (item["kcalPer100g"] as num).toInt();
                                   final kcal = grams * per100 / 100;
                                   final photos = (item["mealImages"] ?? []) as List;
-                                  final firstPhoto = photos.isEmpty
-                                      ? null
-                                      : photos.first is Map
-                                          ? Map<String, dynamic>.from(photos.first as Map)
-                                          : null;
+                                  final thumb = photos.isEmpty ? (path: null, bytes: null) : _thumbFor(photos.first);
                                   final name = (item["name"] as String?) ?? '';
                                   final stamp = item['loggedAt'];
                                   final loggedAt = stamp is num
@@ -898,7 +909,11 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
                                   final pinned = favorites.any(
                                     (fav) => fav.name.toLowerCase() == name.trim().toLowerCase(),
                                   );
-                                  return MealCard(
+                                  return ValueListenableBuilder<int?>(
+                                    valueListenable: _ringFocus,
+                                    builder: (context, focus, _) {
+                                      return MealCard(
+                                    key: ValueKey(item['id']),
                                     name: name,
                                     description: (item['description'] as String?) ?? '',
                                     kcal: kcal.toDouble(),
@@ -908,10 +923,10 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
                                     precedingKcal: mealOffsets[itemIndex],
                                     loggedAt: loggedAt,
                                     swatch: AppColors.mealSwatch(itemIndex),
-                                    selected: _ringFocus == itemIndex,
+                                    selected: focus == itemIndex,
                                     hasPhotos: photos.isNotEmpty,
-                                    photoPath: firstPhoto?['imagePath'] as String?,
-                                    photoBytes: decodeMealImageBytes(firstPhoto),
+                                    photoPath: thumb.path,
+                                    photoBytes: thumb.bytes,
                                     pinned: pinned,
                                     onPin: name.trim().isEmpty ? null : () => _pinItem(item),
                                     onEdit: () => _showEditFood(itemIndex),
@@ -924,6 +939,8 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
                                         builder: (context) {
                                           return GalleryAlertBody(imagePaths: photos);
                                         },
+                                      );
+                                    },
                                       );
                                     },
                                   );
