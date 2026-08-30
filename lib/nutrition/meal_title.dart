@@ -13,6 +13,20 @@ String summarizeMealTitle({
   return titleFromNote(cleaned);
 }
 
+String noteForEstimate({
+  required String typed,
+  String? originalNote,
+  String? appliedTitle,
+}) {
+  final text = typed.trim();
+  if (text.length > mealTitleMaxChars) return text;
+  final original = originalNote?.trim() ?? '';
+  if (original.isEmpty) return text;
+  final applied = appliedTitle?.trim() ?? '';
+  if (applied.isNotEmpty && text != applied) return text;
+  return original;
+}
+
 String? originalMealNote({required String note, required String title}) {
   final cleaned = _oneLine(note);
   final short = title.trim();

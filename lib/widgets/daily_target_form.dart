@@ -7,6 +7,7 @@ import 'package:simple_calorie_tracker/l10n/strings.dart';
 import 'package:simple_calorie_tracker/theme/app_colors.dart';
 import 'package:simple_calorie_tracker/widgets/app_button.dart';
 import 'package:simple_calorie_tracker/widgets/app_text_field.dart';
+import 'package:simple_calorie_tracker/widgets/fine_slider.dart';
 
 class DailyTargetForm extends StatefulWidget {
   final DailyTargetProfile initial;
@@ -499,6 +500,13 @@ class _HeroNumber extends StatelessWidget {
           const SizedBox(height: 4),
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 220),
+            layoutBuilder: (current, previous) => Stack(
+              alignment: Alignment.center,
+              children: [
+                ...previous.where((child) => child.key != current?.key),
+                if (current != null) current,
+              ],
+            ),
             child: Text(
               kcal?.toString() ?? '—',
               key: ValueKey(kcal),
@@ -997,7 +1005,7 @@ class _SliderCardState extends State<_SliderCard> {
               const SizedBox(width: 6),
             ],
           ),
-          Slider(
+          FineSlider(
             min: widget.min,
             max: widget.max,
             value: _value.clamp(widget.min, widget.max),

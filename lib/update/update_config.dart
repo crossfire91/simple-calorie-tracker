@@ -9,14 +9,14 @@ class UpdateConfig {
   );
 
   /// If the JSON is missing, the app reads GitHub Releases instead.
-  /// Create a public repo, attach the APK to a release, tag it `v1.2.1`.
+  /// Create a public repo, attach the APK to a release, tag it `v1.2.2`.
   static const githubRepo = String.fromEnvironment(
     'UPDATE_GITHUB_REPO',
     defaultValue: 'crossfire91/simple-calorie-tracker',
   );
 
-  static const fallbackVersionName = '1.2.1';
-  static const fallbackVersionCode = 4;
+  static const fallbackVersionName = '1.2.2';
+  static const fallbackVersionCode = 5;
 
   static const autoCheckEvery = Duration(hours: 4);
   static const userAgent = 'SimpleCalorieTracker/1.2 (update-check)';

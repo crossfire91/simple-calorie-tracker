@@ -62,6 +62,27 @@ void main() {
     expect(originalMealNote(note: 'Joghurt', title: 'Joghurt'), isNull);
   });
 
+  test('a changed title is the next estimate note, not the first original', () {
+    const original =
+        'doppelte more protein shake matcha mit chunkey flavour 1 scoop gemacht mit mandelmilch 300ml, und 300ml wasser';
+    expect(
+      noteForEstimate(
+        typed: 'More Protein Matcha Shake',
+        originalNote: original,
+        appliedTitle: 'More Protein Matcha Shake',
+      ),
+      original,
+    );
+    expect(
+      noteForEstimate(
+        typed: 'kleiner Salat',
+        originalNote: original,
+        appliedTitle: 'More Protein Matcha Shake',
+      ),
+      'kleiner Salat',
+    );
+  });
+
   test('a typed note can be split into a manual menu', () {
     final items = splitMealNote(
       'doppelte more protein shake matcha 1 scoop gemacht mit mandelmilch 300ml, und 300ml wasser',

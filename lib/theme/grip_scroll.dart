@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
-/// Finger-true scrolling: the list moves by the drag delta, then stops.
+/// 1:1 with the finger while dragging; normal coast after a flick.
+///
+/// Skips bounce/stretch friction so a drag is not shortened vs the thumb.
 class GripScrollPhysics extends ClampingScrollPhysics {
   const GripScrollPhysics({super.parent});
 
@@ -11,17 +13,6 @@ class GripScrollPhysics extends ClampingScrollPhysics {
 
   @override
   double applyPhysicsToUserOffset(ScrollMetrics position, double offset) => offset;
-
-  @override
-  double get minFlingVelocity => double.infinity;
-
-  @override
-  Simulation? createBallisticSimulation(ScrollMetrics position, double velocity) {
-    if (position.outOfRange) {
-      return super.createBallisticSimulation(position, velocity);
-    }
-    return null;
-  }
 }
 
 class GripScrollBehavior extends MaterialScrollBehavior {

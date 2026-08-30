@@ -5,7 +5,35 @@ import 'package:simple_calorie_tracker/AddFoodAlertBody/AddFoodAlertBody.dart';
 import 'package:simple_calorie_tracker/habit/favorites.dart';
 import 'package:simple_calorie_tracker/l10n/app_lang.dart';
 import 'package:simple_calorie_tracker/nutrition/models.dart';
+import 'package:simple_calorie_tracker/nutrition/photo_calorie_service.dart';
 import 'package:simple_calorie_tracker/theme/app_theme.dart';
+
+class _ScriptedCalories extends PhotoCalorieService {
+  _ScriptedCalories(this.replies);
+  final List<MealEstimate> replies;
+  final knownGrams = <int?>[];
+  final knownKcalPer100g = <int?>[];
+  final knownTotalKcal = <int?>[];
+  final extras = <String?>[];
+  final notes = <String>[];
+  var _index = 0;
+
+  @override
+  Future<MealEstimate> estimateFromNote(
+    String note, {
+    int? knownGrams,
+    int? knownKcalPer100g,
+    int? knownTotalKcal,
+    String? extraContext,
+  }) async {
+    this.knownGrams.add(knownGrams);
+    this.knownKcalPer100g.add(knownKcalPer100g);
+    this.knownTotalKcal.add(knownTotalKcal);
+    extras.add(extraContext);
+    notes.add(note);
+    return replies[_index++];
+  }
+}
 
 Widget _wrap(Widget child) {
   return LocaleScope(
@@ -28,7 +56,7 @@ void main() {
     );
 
     expect(find.text('Foto hinzufügen'), findsOneWidget);
-    expect(find.text('Zurücksetzen'), findsNothing);
+    expect(find.text('Zurücksetzen'), findsOneWidget);
     expect(find.text('Optional · bleibt im Tagebuch'), findsOneWidget);
     expect(find.text('Schätzen'), findsNothing);
     expect(find.text('Schätzen freischalten'), findsOneWidget);
@@ -373,7 +401,7 @@ void main() {
       ),
     );
 
-    expect(find.byKey(const Key('reset-meal')), findsNothing);
+    expect(find.byKey(const Key('reset-meal')), findsOneWidget);
 
     final fields = find.byType(TextField);
     await tester.enterText(fields.at(0), 'Apfel');
@@ -390,7 +418,7 @@ void main() {
     expect(find.text('150'), findsNothing);
     expect(find.text('52'), findsNothing);
     expect(find.text('Eintragen'), findsOneWidget);
-    expect(find.byKey(const Key('reset-meal')), findsNothing);
+    expect(find.byKey(const Key('reset-meal')), findsOneWidget);
 
     await tester.tap(find.text('Oats'));
     await tester.pump();
@@ -409,7 +437,7 @@ void main() {
     expect(find.text('380'), findsNothing);
     expect(find.textContaining('Teller eintragen'), findsNothing);
     expect(find.text('Eintragen'), findsOneWidget);
-    expect(find.byKey(const Key('reset-meal')), findsNothing);
+    expect(find.byKey(const Key('reset-meal')), findsOneWidget);
   });
 
   testWidgets('total kcal is a quiet alternative to kcal per 100g', (tester) async {
@@ -493,5 +521,174 @@ void main() {
 
     expect(find.text('Shake'), findsOneWidget);
     expect(find.text('Zurücksetzen'), findsNothing);
+  });
+
+  testWidgets('re-estimate does not keep grams and kcal from the first guess', (tester) async {
+    const first = MealEstimate(
+      mealName: 'Pizza',
+      items: [
+        GroundedFood(
+          detected: DetectedFood(name: 'Pizza', queryEn: 'pizza', grams: 400),
+          matchedName: 'Pizza',
+          kcalPer100g: 250,
+          source: NutritionSource.usda,
+        ),
+      ],
+    );
+    const second = MealEstimate(
+      mealName: 'Salat',
+      items: [
+        GroundedFood(
+          detected: DetectedFood(name: 'Salat', queryEn: 'salad', grams: 180),
+          matchedName: 'Salad',
+          kcalPer100g: 20,
+          source: NutritionSource.usda,
+        ),
+      ],
+    );
+    final calories = _ScriptedCalories([first, first, second]);
+    await tester.pumpWidget(
+      _wrap(
+        AddFoodAlertBody(
+          onAddFood: (_) async {},
+          estimateUnlocked: true,
+          photoCalories: calories,
+        ),
+      ),
+    );
+
+    const longNote =
+        'doppelte pizza mit extra käse und salami vom italienischen imbiss um die ecke';
+    await tester.enterText(find.byType(TextField).first, longNote);
+    await tester.pump();
+    await tester.tap(find.text('Schätzen'));
+    await tester.pumpAndSettle();
+
+    expect(calories.knownGrams, [null]);
+    expect(calories.knownKcalPer100g, [null]);
+    expect(calories.notes.single, longNote);
+    expect(find.text('400'), findsWidgets);
+    expect(find.text('250'), findsWidgets);
+    expect(find.text('Pizza'), findsWidgets);
+
+    await tester.tap(find.text('Neu schätzen'));
+    await tester.pumpAndSettle();
+
+    expect(calories.notes.last, longNote);
+    expect(calories.knownGrams, [null, null]);
+    expect(calories.knownKcalPer100g, [null, null]);
+    expect(calories.extras, [null, null]);
+
+    await tester.enterText(find.byType(TextField).first, 'kleiner Salat');
+    await tester.pump();
+    await tester.tap(find.text('Neu schätzen'));
+    await tester.pumpAndSettle();
+
+    expect(calories.knownGrams, [null, null, null]);
+    expect(calories.knownKcalPer100g.last, isNull);
+    expect(calories.notes.last, 'kleiner Salat');
+    expect(find.text('180'), findsWidgets);
+    expect(find.text('20'), findsWidgets);
+    expect(find.text('400'), findsNothing);
+    expect(find.text('250'), findsNothing);
+  });
+
+  testWidgets('re-estimate keeps grams and kcal the user typed', (tester) async {
+    const first = MealEstimate(
+      mealName: 'Oats',
+      items: [
+        GroundedFood(
+          detected: DetectedFood(name: 'Oats', queryEn: 'oats', grams: 400),
+          matchedName: 'Oats',
+          kcalPer100g: 250,
+          source: NutritionSource.usda,
+        ),
+      ],
+    );
+    const second = MealEstimate(
+      mealName: 'Oats',
+      items: [
+        GroundedFood(
+          detected: DetectedFood(name: 'Oats', queryEn: 'oats', grams: 80),
+          matchedName: 'Oats',
+          kcalPer100g: 380,
+          source: NutritionSource.usda,
+        ),
+      ],
+    );
+    final calories = _ScriptedCalories([first, second]);
+    await tester.pumpWidget(
+      _wrap(
+        AddFoodAlertBody(
+          onAddFood: (_) async {},
+          estimateUnlocked: true,
+          photoCalories: calories,
+        ),
+      ),
+    );
+
+    final fields = find.byType(TextField);
+    await tester.enterText(fields.at(0), 'Haferflocken');
+    await tester.enterText(fields.at(1), '80');
+    await tester.enterText(fields.at(2), '380');
+    await tester.pump();
+    await tester.tap(find.text('Schätzen'));
+    await tester.pumpAndSettle();
+
+    expect(calories.knownGrams, [80]);
+    expect(calories.knownKcalPer100g, [380]);
+    expect(find.widgetWithText(TextField, '80'), findsWidgets);
+    expect(find.widgetWithText(TextField, '380'), findsWidgets);
+
+    await tester.enterText(find.byType(TextField).first, 'Haferflocken mit Milch');
+    await tester.pump();
+    await tester.tap(find.text('Neu schätzen'));
+    await tester.pumpAndSettle();
+
+    expect(calories.knownGrams, [80, 80]);
+    expect(calories.knownKcalPer100g, [380, 380]);
+    expect(calories.notes.last, 'Haferflocken mit Milch');
+    expect(find.text('80'), findsWidgets);
+    expect(find.text('380'), findsWidgets);
+  });
+
+  testWidgets('reset returns the estimate button to Schätzen', (tester) async {
+    const estimate = MealEstimate(
+      mealName: 'Pizza',
+      items: [
+        GroundedFood(
+          detected: DetectedFood(name: 'Pizza', queryEn: 'pizza', grams: 200),
+          matchedName: 'Pizza',
+          kcalPer100g: 250,
+          source: NutritionSource.usda,
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      _wrap(
+        AddFoodAlertBody(
+          onAddFood: (_) async {},
+          estimateUnlocked: true,
+          photoCalories: _ScriptedCalories([estimate]),
+        ),
+      ),
+    );
+
+    expect(find.text('Schätzen'), findsOneWidget);
+    expect(find.text('Neu schätzen'), findsNothing);
+
+    await tester.enterText(find.byType(TextField).first, 'Pizza');
+    await tester.pump();
+    await tester.tap(find.text('Schätzen'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Neu schätzen'), findsOneWidget);
+    expect(find.text('Schätzen'), findsNothing);
+
+    await tester.tap(find.byKey(const Key('reset-meal')));
+    await tester.pump();
+
+    expect(find.text('Schätzen'), findsOneWidget);
+    expect(find.text('Neu schätzen'), findsNothing);
   });
 }

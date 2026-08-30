@@ -19,6 +19,8 @@ class PhotoCalorieService {
   Future<MealEstimate> estimateFromPhoto(
     Uint8List imageBytes, {
     int? knownGrams,
+    int? knownKcalPer100g,
+    int? knownTotalKcal,
     String? note,
     String? extraContext,
   }) async {
@@ -32,6 +34,8 @@ class PhotoCalorieService {
       imageBytes: imageBytes,
       apiKey: geminiKey,
       knownGrams: knownGrams,
+      knownKcalPer100g: knownKcalPer100g,
+      knownTotalKcal: knownTotalKcal,
       note: note,
       extraContext: extraContext,
     );
@@ -47,6 +51,8 @@ class PhotoCalorieService {
   Future<MealEstimate> estimateFromNote(
     String note, {
     int? knownGrams,
+    int? knownKcalPer100g,
+    int? knownTotalKcal,
     String? extraContext,
   }) async {
     final cleaned = note.trim();
@@ -63,6 +69,8 @@ class PhotoCalorieService {
         note: cleaned,
         apiKey: geminiKey,
         knownGrams: knownGrams,
+        knownKcalPer100g: knownKcalPer100g,
+        knownTotalKcal: knownTotalKcal,
         extraContext: extraContext,
       );
       mealName = detected.mealName;
@@ -86,6 +94,8 @@ class PhotoCalorieService {
     Uint8List audioBytes, {
     required String mimeType,
     int? knownGrams,
+    int? knownKcalPer100g,
+    int? knownTotalKcal,
     String? extraContext,
   }) async {
     if (audioBytes.isEmpty) {
@@ -102,6 +112,8 @@ class PhotoCalorieService {
       mimeType: mimeType,
       apiKey: geminiKey,
       knownGrams: knownGrams,
+      knownKcalPer100g: knownKcalPer100g,
+      knownTotalKcal: knownTotalKcal,
       extraContext: extraContext,
     );
     return (

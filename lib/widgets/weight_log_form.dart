@@ -3,6 +3,7 @@ import 'package:simple_calorie_tracker/l10n/strings.dart';
 import 'package:simple_calorie_tracker/theme/app_colors.dart';
 import 'package:simple_calorie_tracker/widgets/app_button.dart';
 import 'package:simple_calorie_tracker/widgets/app_text_field.dart';
+import 'package:simple_calorie_tracker/widgets/fine_slider.dart';
 
 class WeightLogForm extends StatefulWidget {
   final double initialKg;
@@ -97,11 +98,11 @@ class _WeightLogFormState extends State<WeightLogForm> {
                     const SizedBox(width: 8),
                   ],
                 ),
-                Slider(
+                FineSlider(
                   min: 40,
                   max: 180,
                   value: kg,
-                  divisions: 280,
+                  step: 0.1,
                   onChanged: (v) {
                     setState(() {
                       kg = (v * 10).round() / 10;

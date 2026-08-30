@@ -54,7 +54,7 @@ void main() {
     expect(_dialogScroll(tester).pixels, greaterThan(0));
   });
 
-  testWidgets('dialog scroll follows the drag and does not coast', (tester) async {
+  testWidgets('dialog scroll tracks the drag 1:1', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -81,13 +81,42 @@ void main() {
     );
     final gesture = await tester.startGesture(tester.getCenter(scrollable));
     await gesture.moveBy(const Offset(0, -120));
+    await tester.pump(const Duration(milliseconds: 80));
     await gesture.up();
     await tester.pump();
 
-    final afterDrag = _dialogScroll(tester).pixels;
-    expect(afterDrag, closeTo(120, 8));
+    expect(_dialogScroll(tester).pixels, closeTo(120, 8));
+  });
 
-    await tester.pump(const Duration(milliseconds: 240));
-    expect(_dialogScroll(tester).pixels, closeTo(afterDrag, 2));
+  testWidgets('a flick keeps coasting after lift', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetViewInsets);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.dark(),
+        home: const AppDialogCard(
+          icon: Icons.restaurant_rounded,
+          title: 'Mahlzeit',
+          child: SizedBox(height: 520, child: Text('Formular')),
+        ),
+      ),
+    );
+
+    tester.view.viewInsets = const FakeViewPadding(bottom: 380);
+    await tester.pumpAndSettle();
+
+    final scrollable = find.descendant(
+      of: find.byType(AppDialogCard),
+      matching: find.byType(Scrollable),
+    );
+    await tester.fling(scrollable, const Offset(0, -80), 900);
+    await tester.pump();
+    final afterFling = _dialogScroll(tester).pixels;
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(_dialogScroll(tester).pixels, greaterThan(afterFling));
   });
 }

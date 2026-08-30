@@ -1,6 +1,6 @@
 {
-  "versionName": "1.2.1",
-  "versionCode": 4,
-  "apkUrl": "https://github.com/crossfire91/simple-calorie-tracker/releases/download/v1.2.1/app-release.apk",
-  "notes": "Kalorien jetzt auch als Gesamt-kcal. Scrollen folgt dem Finger. Dialoge und Fotos laufen leichter."
+  "versionName": "1.2.2",
+  "versionCode": 5,
+  "apkUrl": "https://github.com/crossfire91/simple-calorie-tracker/releases/download/v1.2.2/app-release.apk",
+  "notes": "Feiner Slider für Ziel und Gewicht. Scrollen läuft nach einem Wisch aus. Schätzung übernimmt deine schon eingetragenen kcal."
 }

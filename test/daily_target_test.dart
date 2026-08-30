@@ -301,6 +301,41 @@ void main() {
     expect(saved?.weightKg, isNull);
   });
 
+  testWidgets('slider plus minus moves one step', (tester) async {
+    DailyTargetProfile? saved;
+
+    await tester.pumpWidget(
+      LocaleScope(
+        controller: LocaleController(AppLang.en),
+        child: MaterialApp(
+          theme: AppTheme.dark(),
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: DailyTargetForm(
+                initial: DailyTargetProfile(
+                  mode: TargetMode.manual,
+                  manualKcal: 2200,
+                ),
+                onSave: (_, profile) => saved = profile,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byIcon(Icons.add_rounded).first);
+    await tester.pump();
+    await tester.tap(find.byIcon(Icons.remove_rounded).first);
+    await tester.pump();
+    await tester.tap(find.byIcon(Icons.remove_rounded).first);
+    await tester.pump();
+    await tester.ensureVisible(find.text('Save this target'));
+    await tester.tap(find.text('Save this target'));
+    await tester.pump();
+    expect(saved?.manualKcal, 2150);
+  });
+
   testWidgets('manual form can add an optional starting weight', (tester) async {
     DailyTargetProfile? saved;
 

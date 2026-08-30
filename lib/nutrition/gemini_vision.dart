@@ -135,6 +135,8 @@ Rules:
     required Uint8List imageBytes,
     required String apiKey,
     int? knownGrams,
+    int? knownKcalPer100g,
+    int? knownTotalKcal,
     String? note,
     String? extraContext,
   }) async {
@@ -146,7 +148,7 @@ Rules:
       parts: [
         {
           'text':
-              '$_prompt${_knownGramsLine(knownGrams)}${_userNoteLine(note)}${_followUpLine(extraContext)}',
+              '$_prompt${_knownGramsLine(knownGrams)}${_knownEnergyLine(kcalPer100g: knownKcalPer100g, totalKcal: knownTotalKcal)}${_userNoteLine(note)}${_followUpLine(extraContext)}',
         },
         {
           'inline_data': {
@@ -162,6 +164,8 @@ Rules:
     required String note,
     required String apiKey,
     int? knownGrams,
+    int? knownKcalPer100g,
+    int? knownTotalKcal,
     String? extraContext,
   }) async {
     return _detect(
@@ -172,7 +176,7 @@ Rules:
       parts: [
         {
           'text':
-              '$_textPrompt${_knownGramsLine(knownGrams)}${_followUpLine(extraContext)}\n\nUser text:\n$note',
+              '$_textPrompt${_knownGramsLine(knownGrams)}${_knownEnergyLine(kcalPer100g: knownKcalPer100g, totalKcal: knownTotalKcal)}${_followUpLine(extraContext)}\n\nUser text:\n$note',
         },
       ],
     );
@@ -183,6 +187,8 @@ Rules:
     required String mimeType,
     required String apiKey,
     int? knownGrams,
+    int? knownKcalPer100g,
+    int? knownTotalKcal,
     String? extraContext,
   }) async {
     return _detect(
@@ -193,7 +199,7 @@ Rules:
       parts: [
         {
           'text':
-              '$_textPrompt${_knownGramsLine(knownGrams)}${_followUpLine(extraContext)}\n\n'
+              '$_textPrompt${_knownGramsLine(knownGrams)}${_knownEnergyLine(kcalPer100g: knownKcalPer100g, totalKcal: knownTotalKcal)}${_followUpLine(extraContext)}\n\n'
               'This is a spoken meal note. Fill transcript with the words in the '
               'user language. Then parse the meal as usual.',
         },
@@ -212,6 +218,18 @@ Rules:
     return '\nThe user already knows the total edible weight is ${knownGrams}g '
         '(from a menu or a scale). Item grams MUST sum to $knownGrams. '
         'Do not pick a different total.';
+  }
+
+  String _knownEnergyLine({int? kcalPer100g, int? totalKcal}) {
+    if (totalKcal != null && totalKcal >= 0) {
+      return '\nThe user already knows the meal is $totalKcal kcal total. '
+          'Do not pick a different total energy.';
+    }
+    if (kcalPer100g != null && kcalPer100g >= 0) {
+      return '\nThe user already knows energy density is $kcalPer100g kcal/100g. '
+          'Do not invent a different density.';
+    }
+    return '';
   }
 
   String _userNoteLine(String? note) {
