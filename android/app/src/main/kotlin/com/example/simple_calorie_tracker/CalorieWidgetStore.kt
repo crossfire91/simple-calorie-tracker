@@ -18,6 +18,8 @@ object CalorieWidgetStore {
     private const val KEY_PROTEIN_NAME = "proteinName"
     private const val KEY_PROTEIN_ID = "proteinFavoriteId"
     private const val KEY_STREAK = "streak"
+    private const val KEY_MEAL_LINES = "mealLineCount"
+    private const val MEAL_LINE_CAP = 8
 
     fun save(
         context: Context,
@@ -35,6 +37,7 @@ object CalorieWidgetStore {
         proteinName: String = "",
         proteinFavoriteId: String = "",
         streak: Int = 0,
+        meals: List<MealLine> = emptyList(),
     ) {
         val editor = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
         editor
@@ -51,6 +54,14 @@ object CalorieWidgetStore {
             .putString(KEY_PROTEIN_NAME, proteinName)
             .putString(KEY_PROTEIN_ID, proteinFavoriteId)
             .putInt(KEY_STREAK, streak)
+        val lines = meals.take(MEAL_LINE_CAP)
+        editor.putInt(KEY_MEAL_LINES, lines.size)
+        for (index in 0 until MEAL_LINE_CAP) {
+            val line = lines.getOrNull(index)
+            editor.putString("meal_${index}_name", line?.name ?: "")
+            editor.putInt("meal_${index}_kcal", line?.kcal ?: 0)
+            editor.putString("meal_${index}_time", line?.time ?: "")
+        }
         val chips = favorites.take(2)
         editor.putInt(KEY_FAV_COUNT, chips.size)
         for (index in 0 until 2) {
@@ -79,6 +90,14 @@ object CalorieWidgetStore {
                 kcal = prefs.getInt("fav_${index}_kcal", 0),
             )
         }.filter { it.id.isNotEmpty() && it.name.isNotEmpty() }
+        val lineCount = prefs.getInt(KEY_MEAL_LINES, 0).coerceIn(0, MEAL_LINE_CAP)
+        val meals = (0 until lineCount).map { index ->
+            MealLine(
+                name = prefs.getString("meal_${index}_name", "") ?: "",
+                kcal = prefs.getInt("meal_${index}_kcal", 0),
+                time = prefs.getString("meal_${index}_time", "") ?: "",
+            )
+        }
         return Snapshot(
             consumedKcal = prefs.getInt(KEY_CONSUMED, 0),
             budgetKcal = prefs.getInt(KEY_BUDGET, 2500),
@@ -94,6 +113,7 @@ object CalorieWidgetStore {
             proteinName = prefs.getString(KEY_PROTEIN_NAME, "") ?: "",
             proteinFavoriteId = prefs.getString(KEY_PROTEIN_ID, "") ?: "",
             streak = prefs.getInt(KEY_STREAK, 0),
+            meals = meals,
         )
     }
 
@@ -101,6 +121,12 @@ object CalorieWidgetStore {
         val id: String,
         val name: String,
         val kcal: Int,
+    )
+
+    data class MealLine(
+        val name: String,
+        val kcal: Int,
+        val time: String,
     )
 
     data class Snapshot(
@@ -118,6 +144,7 @@ object CalorieWidgetStore {
         val proteinName: String = "",
         val proteinFavoriteId: String = "",
         val streak: Int = 0,
+        val meals: List<MealLine> = emptyList(),
     ) {
         val german: Boolean get() = lang != "en"
         val coachLine: String get() = if (german) coachLineDe else coachLineEn

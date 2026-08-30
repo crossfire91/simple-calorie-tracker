@@ -62,14 +62,17 @@ class WeightSnapshot {
 
   GoalType get journeyGoal => profile.goal;
 
-  /// Intended weekly change, including a pace set with a fixed calorie
-  /// number. The current-weight cap is ignored so a later underweight
-  /// floor cannot rewrite a large loss as "maintain".
+  /// Weekly change that matches the calorie number. If the slider asked
+  /// for 1 kg but rules cap at 0.52, this is 0.52. Falls back to the
+  /// slider only when the current calculation has no room left (so a
+  /// later underweight floor cannot rewrite a large loss as "maintain").
   double get journeyPaceKgPerWeek {
     if (profile.goal == GoalType.maintain) return 0;
     if (profile.mode == TargetMode.manual) return 0;
+    final actual = result?.plannedKgPerWeek ?? 0;
+    if (actual > 0.05) return actual;
     if (profile.paceKgPerWeek > 0) return profile.paceKgPerWeek;
-    return result?.plannedKgPerWeek ?? 0;
+    return 0;
   }
 }
 

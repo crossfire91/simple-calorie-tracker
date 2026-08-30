@@ -547,6 +547,7 @@ class CalorieSummaryScreenModel {
       lang: sharedPreferences!.getString('appLang') ?? 'de',
       mealCount: items.length,
       favorites: tapFavs,
+      meals: HomeWidgetSync.mealLines(items),
       coachLineDe: const S(AppLang.de).coachLine(plan),
       coachLineEn: const S(AppLang.en).coachLine(plan),
       coachMood: plan.mood.name,

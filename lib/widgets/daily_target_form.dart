@@ -27,6 +27,7 @@ class DailyTargetForm extends StatefulWidget {
 class _DailyTargetFormState extends State<DailyTargetForm> {
   late DailyTargetProfile profile;
   late final TextEditingController manualController;
+  late final ValueNotifier<DailyTargetResult?> _preview;
   bool _pickedGoal = false;
   bool _pickedSex = false;
   bool _manualWeightOpen = false;
@@ -55,6 +56,7 @@ class _DailyTargetFormState extends State<DailyTargetForm> {
     manualController = TextEditingController(
       text: profile.manualKcal.toString(),
     );
+    _preview = ValueNotifier(DailyTargetMath.tryCalculate(profile));
   }
 
   bool get _guide => widget.firstRun;
@@ -64,7 +66,12 @@ class _DailyTargetFormState extends State<DailyTargetForm> {
   @override
   void dispose() {
     manualController.dispose();
+    _preview.dispose();
     super.dispose();
+  }
+
+  void _syncPreview() {
+    _preview.value = result;
   }
 
   DailyTargetResult? get result {
@@ -97,6 +104,7 @@ class _DailyTargetFormState extends State<DailyTargetForm> {
         _manualWeightOpen = profile.weightKg != null;
       }
     });
+    _syncPreview();
   }
 
   void _enterCalculated() {
@@ -104,6 +112,7 @@ class _DailyTargetFormState extends State<DailyTargetForm> {
       profile.mode = TargetMode.calculated;
       _fillCalculatedDefaults();
     });
+    _syncPreview();
   }
 
   void _setGoal(GoalType goal) {
@@ -113,6 +122,7 @@ class _DailyTargetFormState extends State<DailyTargetForm> {
       if (goal == GoalType.gain) profile.paceKgPerWeek = 0.25;
       _pickedGoal = true;
     });
+    _syncPreview();
   }
 
   @override
@@ -121,7 +131,6 @@ class _DailyTargetFormState extends State<DailyTargetForm> {
     final calculated = profile.mode == TargetMode.calculated;
     final lose = profile.goal == GoalType.lose;
     final gain = profile.goal == GoalType.gain;
-    final preview = result;
     final activityIndex = ActivityLevel.values.indexOf(profile.activity);
 
     return SliderTheme(
@@ -163,12 +172,11 @@ class _DailyTargetFormState extends State<DailyTargetForm> {
               divisions: 74,
               textController: manualController,
               onChanged: (v) {
-                setState(() {
-                  profile.manualKcal = v.round();
-                  if (manualController.text != v.round().toString()) {
-                    manualController.text = v.round().toString();
-                  }
-                });
+                profile.manualKcal = v.round();
+                if (manualController.text != v.round().toString()) {
+                  manualController.text = v.round().toString();
+                }
+                _syncPreview();
               },
             ),
             const SizedBox(height: 10),
@@ -181,7 +189,8 @@ class _DailyTargetFormState extends State<DailyTargetForm> {
               onChanged: (text) {
                 final parsed = int.tryParse(text.trim());
                 if (parsed == null) return;
-                setState(() => profile.manualKcal = parsed.clamp(800, 4500));
+                profile.manualKcal = parsed.clamp(800, 4500);
+                _syncPreview();
               },
             ),
             const SizedBox(height: 10),
@@ -197,9 +206,8 @@ class _DailyTargetFormState extends State<DailyTargetForm> {
                 current: (profile.weightKg ?? 72).clamp(40, 180),
                 divisions: 140,
                 onChanged: (v) {
-                  setState(() {
-                    profile.weightKg = (v * 10).round() / 10;
-                  });
+                  profile.weightKg = (v * 10).round() / 10;
+                  _syncPreview();
                 },
               ),
               const SizedBox(height: 8),
@@ -243,10 +251,13 @@ class _DailyTargetFormState extends State<DailyTargetForm> {
                           icon: Icons.woman_rounded,
                           label: s.woman,
                           selected: _pickedSex && profile.sex == BiologicalSex.female,
-                          onTap: () => setState(() {
-                            profile.sex = BiologicalSex.female;
-                            _pickedSex = true;
-                          }),
+                          onTap: () {
+                            setState(() {
+                              profile.sex = BiologicalSex.female;
+                              _pickedSex = true;
+                            });
+                            _syncPreview();
+                          },
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -255,10 +266,13 @@ class _DailyTargetFormState extends State<DailyTargetForm> {
                           icon: Icons.man_rounded,
                           label: s.man,
                           selected: _pickedSex && profile.sex == BiologicalSex.male,
-                          onTap: () => setState(() {
-                            profile.sex = BiologicalSex.male;
-                            _pickedSex = true;
-                          }),
+                          onTap: () {
+                            setState(() {
+                              profile.sex = BiologicalSex.male;
+                              _pickedSex = true;
+                            });
+                            _syncPreview();
+                          },
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -267,10 +281,13 @@ class _DailyTargetFormState extends State<DailyTargetForm> {
                           icon: Icons.sentiment_satisfied_alt_rounded,
                           label: s.skip,
                           selected: _pickedSex && profile.sex == BiologicalSex.unspecified,
-                          onTap: () => setState(() {
-                            profile.sex = BiologicalSex.unspecified;
-                            _pickedSex = true;
-                          }),
+                          onTap: () {
+                            setState(() {
+                              profile.sex = BiologicalSex.unspecified;
+                              _pickedSex = true;
+                            });
+                            _syncPreview();
+                          },
                         ),
                       ),
                     ],
@@ -292,9 +309,10 @@ class _DailyTargetFormState extends State<DailyTargetForm> {
                     max: DailyTargetMath.maxAge.toDouble(),
                     current: (profile.age ?? 28).toDouble(),
                     divisions: DailyTargetMath.maxAge - DailyTargetMath.minAge,
-                    onChanged: (v) => setState(() {
+                    onChanged: (v) {
                       profile.age = v.round();
-                    }),
+                      _syncPreview();
+                    },
                   ),
                   const SizedBox(height: 10),
                   _SliderCard(
@@ -305,9 +323,10 @@ class _DailyTargetFormState extends State<DailyTargetForm> {
                     max: 210,
                     current: (profile.heightCm ?? 170).clamp(140, 210),
                     divisions: 70,
-                    onChanged: (v) => setState(() {
+                    onChanged: (v) {
                       profile.heightCm = v.roundToDouble();
-                    }),
+                      _syncPreview();
+                    },
                   ),
                   const SizedBox(height: 10),
                   _SliderCard(
@@ -319,9 +338,10 @@ class _DailyTargetFormState extends State<DailyTargetForm> {
                     max: 180,
                     current: (profile.weightKg ?? 72).clamp(40, 180),
                     divisions: 140,
-                    onChanged: (v) => setState(() {
+                    onChanged: (v) {
                       profile.weightKg = (v * 10).round() / 10;
-                    }),
+                      _syncPreview();
+                    },
                   ),
                   const SizedBox(height: 10),
                   _SliderCard(
@@ -333,18 +353,22 @@ class _DailyTargetFormState extends State<DailyTargetForm> {
                     max: 4,
                     current: activityIndex.toDouble(),
                     divisions: 4,
-                    onChanged: (v) => setState(() {
+                    iconFor: (v) => _activityIcons[v.round().clamp(0, 4)],
+                    displayFor: (v) => s.activityLabels[v.round().clamp(0, 4)],
+                    onChanged: (v) {
                       profile.activity = ActivityLevel.values[v.round().clamp(0, 4)];
-                    }),
+                      _syncPreview();
+                    },
                   ),
                   if (lose || gain) ...[
                     const SizedBox(height: 10),
                     _PaceSlider(
                       lose: lose,
                       paceKgPerWeek: profile.paceKgPerWeek,
-                      onChanged: (v) => setState(() {
+                      onChanged: (v) {
                         profile.paceKgPerWeek = (v * 20).round() / 20;
-                      }),
+                        _syncPreview();
+                      },
                     ),
                   ],
                 ],
@@ -354,44 +378,47 @@ class _DailyTargetFormState extends State<DailyTargetForm> {
           const SizedBox(height: 20),
           _LockedStep(
             unlocked: !_guide || !calculated || _calculateReady,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _Label(s.yourNumberLabel),
-                const SizedBox(height: 10),
-                _HeroNumber(
-                  result: !_guide || !calculated || _calculateReady
-                      ? preview
-                      : null,
-                  calculated: calculated,
-                  goal: profile.goal,
-                  intendedKgPerWeek: profile.paceKgPerWeek,
-                  fallbackKcal: calculated ? null : _manualSlider.round(),
-                ),
-                if (preview?.noteKind != null &&
-                    (!_guide || !calculated || _calculateReady)) ...[
-                  const SizedBox(height: 12),
-                  _NotePill(
-                    text: s.targetNote(
-                      preview!.noteKind!,
-                      preview.plannedKgPerWeek,
-                      weightKg: profile.weightKg,
-                      tdee: preview.tdee,
-                      bmr: preview.bmr,
-                      targetKcal: preview.targetKcal,
+            child: ValueListenableBuilder<DailyTargetResult?>(
+              valueListenable: _preview,
+              builder: (context, preview, _) {
+                final ready = !_guide || !calculated || _calculateReady;
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _Label(s.yourNumberLabel),
+                    const SizedBox(height: 10),
+                    _HeroNumber(
+                      result: ready ? preview : null,
+                      calculated: calculated,
+                      goal: profile.goal,
+                      intendedKgPerWeek: profile.paceKgPerWeek,
+                      fallbackKcal: calculated ? null : (profile.manualKcal ?? 2200),
                     ),
-                    highlight: preview.wasCapped || preview.underweightBlocked,
-                  ),
-                ],
-                const SizedBox(height: 16),
-                AppPrimaryButton(
-                  label: widget.firstRun ? s.startTracking : s.saveThisNumber,
-                  icon: Icons.favorite_rounded,
-                  onPressed: preview == null || (calculated && !_calculateReady)
-                      ? null
-                      : () => widget.onSave(preview.targetKcal, profile),
-                ),
-              ],
+                    if (preview?.noteKind != null && ready) ...[
+                      const SizedBox(height: 12),
+                      _NotePill(
+                        text: s.targetNote(
+                          preview!.noteKind!,
+                          preview.plannedKgPerWeek,
+                          weightKg: profile.weightKg,
+                          tdee: preview.tdee,
+                          bmr: preview.bmr,
+                          targetKcal: preview.targetKcal,
+                        ),
+                        highlight: preview.wasCapped || preview.underweightBlocked,
+                      ),
+                    ],
+                    const SizedBox(height: 16),
+                    AppPrimaryButton(
+                      label: widget.firstRun ? s.startTracking : s.saveThisNumber,
+                      icon: Icons.favorite_rounded,
+                      onPressed: preview == null || (calculated && !_calculateReady)
+                          ? null
+                          : () => widget.onSave(preview.targetKcal, profile),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
           const SizedBox(height: 10),
@@ -662,6 +689,7 @@ class _PaceSlider extends StatelessWidget {
       label: lose ? s.howQuickly : s.howYouGrow,
       suffix: s.kgPerWeekShort,
       hint: s.paceName(paceKgPerWeek, lose),
+      hintFor: (v) => s.paceName(v, lose),
       decimals: 2,
       min: lose ? 0.25 : 0.15,
       max: lose ? 1.0 : 0.5,
@@ -737,6 +765,9 @@ class _SliderCard extends StatefulWidget {
   final String? suffix;
   final String? hint;
   final String? display;
+  final IconData Function(double value)? iconFor;
+  final String Function(double value)? displayFor;
+  final String Function(double value)? hintFor;
   final double min;
   final double max;
   final double current;
@@ -757,6 +788,9 @@ class _SliderCard extends StatefulWidget {
     this.suffix,
     this.hint,
     this.display,
+    this.iconFor,
+    this.displayFor,
+    this.hintFor,
     this.decimals = 0,
     this.divisions,
     this.editable = true,
@@ -770,6 +804,7 @@ class _SliderCard extends StatefulWidget {
 class _SliderCardState extends State<_SliderCard> {
   TextEditingController? _ownedController;
   late final FocusNode _focus;
+  late double _value;
 
   TextEditingController get _controller =>
       widget.textController ?? _ownedController!;
@@ -777,11 +812,13 @@ class _SliderCardState extends State<_SliderCard> {
   @override
   void initState() {
     super.initState();
+    _value = widget.current;
     if (widget.textController == null) {
-      _ownedController = TextEditingController(text: _fmt(widget.current));
+      _ownedController = TextEditingController(text: _fmt(_value));
     } else if (widget.textController!.text.trim().isEmpty) {
-      widget.textController!.text = _fmt(widget.current);
+      widget.textController!.text = _fmt(_value);
     }
+    widget.textController?.addListener(_onExternalText);
     _focus = FocusNode()..addListener(() {
       if (!_focus.hasFocus) _commit(_controller.text, clamp: true);
       if (mounted) setState(() {});
@@ -791,8 +828,15 @@ class _SliderCardState extends State<_SliderCard> {
   @override
   void didUpdateWidget(covariant _SliderCard oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.textController != widget.textController) {
+      oldWidget.textController?.removeListener(_onExternalText);
+      widget.textController?.addListener(_onExternalText);
+    }
     if (_focus.hasFocus) return;
-    final next = _fmt(widget.current);
+    if ((widget.current - _value).abs() > 0.0001) {
+      _value = widget.current;
+    }
+    final next = _fmt(_value);
     if (_controller.text != next) {
       _controller.value = TextEditingValue(
         text: next,
@@ -803,9 +847,19 @@ class _SliderCardState extends State<_SliderCard> {
 
   @override
   void dispose() {
+    widget.textController?.removeListener(_onExternalText);
     _focus.dispose();
     _ownedController?.dispose();
     super.dispose();
+  }
+
+  void _onExternalText() {
+    if (!mounted || _focus.hasFocus) return;
+    final parsed = double.tryParse(_controller.text.trim().replaceAll(',', '.'));
+    if (parsed == null) return;
+    final next = parsed.clamp(widget.min, widget.max).toDouble();
+    if ((next - _value).abs() <= 0.0001) return;
+    setState(() => _value = next);
   }
 
   String _fmt(double value) {
@@ -827,6 +881,9 @@ class _SliderCardState extends State<_SliderCard> {
 
   @override
   Widget build(BuildContext context) {
+    final icon = widget.iconFor?.call(_value) ?? widget.icon;
+    final display = widget.displayFor?.call(_value) ?? widget.display;
+    final hint = widget.hintFor?.call(_value) ?? widget.hint;
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 12, 8, 4),
       decoration: BoxDecoration(
@@ -845,7 +902,7 @@ class _SliderCardState extends State<_SliderCard> {
                   gradient: AppColors.gradient,
                   borderRadius: BorderRadius.circular(11),
                 ),
-                child: Icon(widget.icon, color: Colors.white, size: 18),
+                child: Icon(icon, color: Colors.white, size: 18),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -860,9 +917,9 @@ class _SliderCardState extends State<_SliderCard> {
                         fontSize: 13,
                       ),
                     ),
-                    if (widget.hint != null)
+                    if (hint != null)
                       Text(
-                        widget.hint!,
+                        hint,
                         style: const TextStyle(
                           color: AppColors.accentSoft,
                           fontWeight: FontWeight.w600,
@@ -897,6 +954,7 @@ class _SliderCardState extends State<_SliderCard> {
                       fontSize: 14,
                     ),
                     cursorColor: AppColors.accentSoft,
+                    scrollPadding: const EdgeInsets.fromLTRB(20, 20, 20, 80),
                     onChanged: (text) => _commit(text, clamp: false),
                     onSubmitted: (text) => _commit(text, clamp: true),
                     decoration: InputDecoration(
@@ -926,7 +984,7 @@ class _SliderCardState extends State<_SliderCard> {
               ] else
                 Flexible(
                   child: Text(
-                    widget.display ?? '',
+                    display ?? '',
                     textAlign: TextAlign.right,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -942,10 +1000,18 @@ class _SliderCardState extends State<_SliderCard> {
           Slider(
             min: widget.min,
             max: widget.max,
-            value: widget.current.clamp(widget.min, widget.max),
+            value: _value.clamp(widget.min, widget.max),
             divisions: widget.divisions,
             onChanged: (value) {
               _focus.unfocus();
+              setState(() => _value = value);
+              final next = _fmt(value);
+              if (_controller.text != next) {
+                _controller.value = TextEditingValue(
+                  text: next,
+                  selection: TextSelection.collapsed(offset: next.length),
+                );
+              }
               widget.onChanged(value);
             },
           ),
@@ -1016,16 +1082,14 @@ class _LockedStep extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (unlocked) return child;
     return AnimatedOpacity(
       duration: const Duration(milliseconds: 220),
-      opacity: unlocked ? 1 : 0.55,
+      opacity: 0.55,
       child: ImageFiltered(
-        imageFilter: ImageFilter.blur(
-          sigmaX: unlocked ? 0 : 5,
-          sigmaY: unlocked ? 0 : 5,
-        ),
+        imageFilter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
         child: IgnorePointer(
-          ignoring: !unlocked,
+          ignoring: true,
           child: child,
         ),
       ),

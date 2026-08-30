@@ -80,6 +80,31 @@ void main() {
     expect(snapshot.currentKg, 81.4);
   });
 
+  test('capped pace is what the week line shows, not the slider wish', () {
+    final profile = DailyTargetProfile(
+      mode: TargetMode.calculated,
+      goal: GoalType.lose,
+      sex: BiologicalSex.male,
+      age: 35,
+      heightCm: 175,
+      weightKg: 95,
+      activity: ActivityLevel.light,
+      paceKgPerWeek: 1.0,
+    );
+    final result = DailyTargetMath.tryCalculate(profile)!;
+    final snapshot = WeightSnapshot(
+      profile: profile,
+      result: result,
+      logs: const [],
+      trackedDateKeys: const {},
+    );
+
+    expect(result.wasCapped, isTrue);
+    expect(result.plannedKgPerWeek, lessThan(0.7));
+    expect(snapshot.journeyPaceKgPerWeek, closeTo(result.plannedKgPerWeek, 0.001));
+    expect(snapshot.journeyPaceKgPerWeek, isNot(closeTo(1.0, 0.05)));
+  });
+
   test('calculated lose target shows weekly loss from current weight', () {
     final at80 = JourneyMath.projection(_calculated());
     final at75 = JourneyMath.projection(_calculated(), currentWeight: 75);

@@ -6,4 +6,6 @@
     <string name="widget_coach_description">Uhrzeit-bewusster Satz, den du antippen kannst.</string>
     <string name="widget_protein_name">Protein</string>
     <string name="widget_protein_description">Protein heute, mit einem Favoriten zum Tippen.</string>
+    <string name="widget_plate_name">Heute gegessen</string>
+    <string name="widget_plate_description">Die heutigen Teller als Liste auf dem Startbildschirm.</string>
 </resources>

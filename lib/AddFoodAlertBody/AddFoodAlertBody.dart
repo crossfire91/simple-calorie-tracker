@@ -78,6 +78,7 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
   bool _showOriginal = false;
   final _photoCalories = PhotoCalorieService();
   final _voice = VoiceNoteRecorder();
+  final _fieldsTick = ValueNotifier<int>(0);
 
   @override
   void initState() {
@@ -89,6 +90,9 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
       grams: widget.initialGrams,
       image: widget.initialImage,
     );
+    noteController.addListener(_tickFields);
+    foodWeightInGrams.addListener(_tickFields);
+    kcalPer100gController.addListener(_tickFields);
     final savedNote = widget.initialDescription?.trim();
     if (savedNote != null && savedNote.isNotEmpty) {
       _originalNote = savedNote;
@@ -332,11 +336,62 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
     }
   }
 
+  void _tickFields() {
+    _fieldsTick.value++;
+  }
+
+  bool get _canReset => !widget.addServingMode && !widget.editMode;
+
+  bool get _isDirty {
+    return noteController.text.trim().isNotEmpty ||
+        foodWeightInGrams.text.trim().isNotEmpty ||
+        kcalPer100gController.text.trim().isNotEmpty ||
+        imageOfFood != null ||
+        _estimate != null ||
+        _error != null ||
+        _status != null ||
+        _pinFavorite ||
+        _originalNote != null ||
+        _manualMenu ||
+        _clarificationNote != null ||
+        _listening;
+  }
+
+  Future<void> _resetForm() async {
+    if (_analyzing || !_canReset) return;
+    if (_listening) {
+      _listening = false;
+      await _voice.cancel();
+      if (!mounted) return;
+    }
+    noteController.clear();
+    foodWeightInGrams.clear();
+    kcalPer100gController.clear();
+    setState(() {
+      imageOfFood = null;
+      _error = null;
+      _status = null;
+      _estimate = null;
+      _pinFavorite = false;
+      _clarificationUsed = false;
+      _clarificationNote = null;
+      _estimateRevision++;
+      _imageChanged = false;
+      _manualMenu = false;
+      _originalNote = null;
+      _showOriginal = false;
+    });
+  }
+
   @override
   void dispose() {
+    noteController.removeListener(_tickFields);
+    foodWeightInGrams.removeListener(_tickFields);
+    kcalPer100gController.removeListener(_tickFields);
     kcalPer100gController.dispose();
     foodWeightInGrams.dispose();
     noteController.dispose();
+    _fieldsTick.dispose();
     _voice.dispose();
     super.dispose();
   }
@@ -822,15 +877,37 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
             ),
           ),
         ],
-        const SizedBox(height: 18),
-        AppPrimaryButton(
-          label: widget.addServingMode
-              ? s.addServing
-              : widget.editMode
-                  ? (_plateKcal != null ? s.saveThisPlate(_plateKcal!) : s.saveChanges)
-                  : (_plateKcal != null ? s.logThisPlate(_plateKcal!) : s.logMeal),
-          icon: Icons.check_rounded,
-          onPressed: _analyzing ? null : _submit,
+        ValueListenableBuilder<int>(
+          valueListenable: _fieldsTick,
+          builder: (context, _, __) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_canReset && _isDirty) ...[
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      key: const Key('reset-meal'),
+                      onPressed: _analyzing ? null : _resetForm,
+                      icon: const Icon(Icons.restart_alt_rounded, size: 18),
+                      label: Text(s.resetMeal),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 18),
+                AppPrimaryButton(
+                  label: widget.addServingMode
+                      ? s.addServing
+                      : widget.editMode
+                          ? (_plateKcal != null ? s.saveThisPlate(_plateKcal!) : s.saveChanges)
+                          : (_plateKcal != null ? s.logThisPlate(_plateKcal!) : s.logMeal),
+                  icon: Icons.check_rounded,
+                  onPressed: _analyzing ? null : _submit,
+                ),
+              ],
+            );
+          },
         ),
       ],
     );
@@ -1329,6 +1406,7 @@ class _MiniField extends StatelessWidget {
         enabled: enabled,
         keyboardType: keyboardType,
         textAlign: textAlign,
+        scrollPadding: const EdgeInsets.fromLTRB(20, 20, 20, 80),
         style: const TextStyle(
           color: AppColors.text,
           fontSize: 13,

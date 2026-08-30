@@ -6,4 +6,6 @@
     <string name="widget_coach_description">Time-aware leftover advice you can tap.</string>
     <string name="widget_protein_name">Protein</string>
     <string name="widget_protein_description">Protein left today, with a one-tap favorite.</string>
+    <string name="widget_plate_name">Eaten today</string>
+    <string name="widget_plate_description">Today’s plates as a list on the home screen.</string>
 </resources>

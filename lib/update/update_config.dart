@@ -15,9 +15,9 @@ class UpdateConfig {
     defaultValue: 'crossfire91/simple-calorie-tracker',
   );
 
-  static const fallbackVersionName = '1.1.0';
-  static const fallbackVersionCode = 2;
+  static const fallbackVersionName = '1.2.0';
+  static const fallbackVersionCode = 3;
 
   static const autoCheckEvery = Duration(hours: 4);
-  static const userAgent = 'SimpleCalorieTracker/1.1 (update-check)';
+  static const userAgent = 'SimpleCalorieTracker/1.2 (update-check)';
 }

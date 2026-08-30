@@ -53,68 +53,101 @@ class AppDialogCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BackdropFilter(
-      filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-      child: Material(
-        color: AppColors.overlay,
-        child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 440),
-                child: Container(
-                  decoration: AppColors.glass(radius: 28),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(22, 18, 22, 22),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              width: 48,
-                              height: 48,
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                  colors: iconColors,
-                                ),
-                                borderRadius: BorderRadius.circular(16),
-                                boxShadow: AppColors.glow(iconColors.last, 0.28),
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        const RepaintBoundary(child: _DialogScrim()),
+        Material(
+          color: AppColors.overlay,
+          child: SafeArea(
+            child: Column(
+              children: [
+                Expanded(
+                  child: Center(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 440),
+                        child: RepaintBoundary(
+                          child: Container(
+                            decoration: AppColors.glass(radius: 28),
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(22, 18, 22, 22),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Container(
+                                        width: 48,
+                                        height: 48,
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(
+                                            begin: Alignment.topLeft,
+                                            end: Alignment.bottomRight,
+                                            colors: iconColors,
+                                          ),
+                                          borderRadius: BorderRadius.circular(16),
+                                          boxShadow: AppColors.glow(iconColors.last, 0.28),
+                                        ),
+                                        child: Icon(icon, color: Colors.white, size: 24),
+                                      ),
+                                      const Spacer(),
+                                      if (showClose)
+                                        _CloseChip(onTap: () => Navigator.pop(context)),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 18),
+                                  Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: Text(title, style: Theme.of(context).textTheme.titleLarge),
+                                  ),
+                                  if (subtitle != null) ...[
+                                    const SizedBox(height: 6),
+                                    Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: Text(subtitle!, style: Theme.of(context).textTheme.bodyMedium),
+                                    ),
+                                  ],
+                                  const SizedBox(height: 22),
+                                  child,
+                                ],
                               ),
-                              child: Icon(icon, color: Colors.white, size: 24),
                             ),
-                            const Spacer(),
-                            if (showClose)
-                              _CloseChip(onTap: () => Navigator.pop(context)),
-                          ],
-                        ),
-                        const SizedBox(height: 18),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(title, style: Theme.of(context).textTheme.titleLarge),
-                        ),
-                        if (subtitle != null) ...[
-                          const SizedBox(height: 6),
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text(subtitle!, style: Theme.of(context).textTheme.bodyMedium),
                           ),
-                        ],
-                        const SizedBox(height: 22),
-                        child,
-                      ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
+                const _KeyboardStrut(),
+              ],
             ),
           ),
         ),
-      ),
+      ],
     );
+  }
+}
+
+class _DialogScrim extends StatelessWidget {
+  const _DialogScrim();
+
+  @override
+  Widget build(BuildContext context) {
+    return BackdropFilter(
+      filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+      child: const SizedBox.expand(),
+    );
+  }
+}
+
+class _KeyboardStrut extends StatelessWidget {
+  const _KeyboardStrut();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(height: MediaQuery.viewInsetsOf(context).bottom);
   }
 }
 

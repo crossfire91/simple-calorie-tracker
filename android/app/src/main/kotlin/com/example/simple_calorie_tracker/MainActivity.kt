@@ -94,6 +94,7 @@ class MainActivity : FlutterActivity() {
                             args["proteinName"] as? String ?: "",
                             args["proteinFavoriteId"] as? String ?: "",
                             asInt(args["streak"], 0),
+                            parseMeals(args["meals"]),
                         )
                         WidgetHub.refreshAll(this@MainActivity)
                         result.success(true)
@@ -130,6 +131,18 @@ class MainActivity : FlutterActivity() {
             "action" to action,
             "favoriteId" to favoriteId,
         )
+    }
+
+    private fun parseMeals(raw: Any?): List<CalorieWidgetStore.MealLine> {
+        val list = raw as? List<*> ?: return emptyList()
+        return list.mapNotNull { item ->
+            val map = item as? Map<*, *> ?: return@mapNotNull null
+            CalorieWidgetStore.MealLine(
+                name = (map["name"] as? String ?: "").trim(),
+                kcal = asInt(map["kcal"], 0),
+                time = (map["time"] as? String ?: "").trim(),
+            )
+        }.take(8)
     }
 
     private fun parseFavorites(raw: Any?): List<CalorieWidgetStore.FavoriteChip> {

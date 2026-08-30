@@ -37,7 +37,7 @@ class AppUpdate {
       if (remote == null) {
         return UpdateStatus(installed: current, checked: false);
       }
-      if (remote.isNewerVersionThan(current)) {
+      if (remote.isNewerThan(current)) {
         return UpdateStatus(installed: current, newer: remote, checked: true);
       }
       return UpdateStatus(installed: current, checked: true);

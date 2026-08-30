@@ -28,6 +28,35 @@ class HomeWidgetSync {
     );
   }
 
+  static List<Map<String, Object>> mealLines(
+    Iterable<dynamic> items, {
+    int limit = 8,
+  }) {
+    return [
+      for (final item in items.take(limit))
+        if (item is Map)
+          {
+            'name': (item['name'] as String? ?? '').trim(),
+            'kcal': _lineKcal(item),
+            'time': _lineTime(item['loggedAt']),
+          },
+    ];
+  }
+
+  static int _lineKcal(Map item) {
+    final grams = (item['weightInGrams'] as num?) ?? 0;
+    final per100 = (item['kcalPer100g'] as num?) ?? 0;
+    return (grams * per100 / 100).round();
+  }
+
+  static String _lineTime(dynamic stamp) {
+    if (stamp is! num || stamp <= 0) return '';
+    final time = DateTime.fromMillisecondsSinceEpoch(stamp.toInt());
+    final hour = time.hour.toString().padLeft(2, '0');
+    final minute = time.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
+  }
+
   static Future<void> publish({
     required int consumedKcal,
     required int budgetKcal,
@@ -35,6 +64,7 @@ class HomeWidgetSync {
     required String lang,
     int mealCount = 0,
     List<Map<String, Object>> favorites = const [],
+    List<Map<String, Object>> meals = const [],
     String coachLineDe = '',
     String coachLineEn = '',
     String coachMood = 'nextPlate',
@@ -53,6 +83,7 @@ class HomeWidgetSync {
         'lang': lang,
         'mealCount': mealCount,
         'favorites': favorites,
+        'meals': meals,
         'coachLineDe': coachLineDe,
         'coachLineEn': coachLineEn,
         'coachMood': coachMood,

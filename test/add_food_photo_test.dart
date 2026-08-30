@@ -28,6 +28,7 @@ void main() {
     );
 
     expect(find.text('Foto hinzufügen'), findsOneWidget);
+    expect(find.text('Zurücksetzen'), findsNothing);
     expect(find.text('Optional · bleibt im Tagebuch'), findsOneWidget);
     expect(find.text('Schätzen'), findsNothing);
     expect(find.text('Schätzen freischalten'), findsOneWidget);
@@ -103,6 +104,14 @@ void main() {
     expect(nameBox.height, closeTo(weightBox.height, 8));
     expect(weightBox.width, greaterThan(90));
     expect(energyBox.width, greaterThan(90));
+    expect(
+      tester.getTopLeft(find.text('150')).dx,
+      greaterThan(tester.getTopRight(find.byIcon(Icons.scale_rounded)).dx + 4),
+    );
+    expect(
+      tester.getTopLeft(find.text('380')).dx,
+      greaterThan(tester.getTopRight(find.byIcon(Icons.local_fire_department_rounded)).dx + 4),
+    );
     expect(tester.getTopLeft(find.text('g')).dx, greaterThan(tester.getTopRight(find.text('150')).dx - 2));
     expect(
       tester.getTopLeft(find.text('kcal / 100g')).dx,
@@ -345,5 +354,79 @@ void main() {
 
     expect(find.text('Mandelmilch'), findsOneWidget);
     expect(find.text('Protein'), findsOneWidget);
+  });
+
+  testWidgets('reset clears typed values and a quick meal chip', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        AddFoodAlertBody(
+          onAddFood: (_) async {},
+          quickMeals: const [
+            FavoriteMeal(
+              id: '1',
+              name: 'Oats',
+              kcalPer100g: 380,
+              weightInGrams: 80,
+            ),
+          ],
+        ),
+      ),
+    );
+
+    expect(find.byKey(const Key('reset-meal')), findsNothing);
+
+    final fields = find.byType(TextField);
+    await tester.enterText(fields.at(0), 'Apfel');
+    await tester.enterText(fields.at(1), '150');
+    await tester.enterText(fields.at(2), '52');
+    await tester.pump();
+
+    expect(find.text('Zurücksetzen'), findsOneWidget);
+    await tester.ensureVisible(find.byKey(const Key('reset-meal')));
+    await tester.tap(find.byKey(const Key('reset-meal')));
+    await tester.pump();
+
+    expect(find.text('Apfel'), findsNothing);
+    expect(find.text('150'), findsNothing);
+    expect(find.text('52'), findsNothing);
+    expect(find.text('Eintragen'), findsOneWidget);
+    expect(find.byKey(const Key('reset-meal')), findsNothing);
+
+    await tester.tap(find.text('Oats'));
+    await tester.pump();
+
+    expect(find.text('80'), findsOneWidget);
+    expect(find.text('380'), findsOneWidget);
+    expect(find.textContaining('Teller eintragen'), findsOneWidget);
+    expect(find.text('Zurücksetzen'), findsOneWidget);
+
+    await tester.ensureVisible(find.byKey(const Key('reset-meal')));
+    await tester.tap(find.byKey(const Key('reset-meal')));
+    await tester.pump();
+
+    expect(find.text('Oats'), findsOneWidget);
+    expect(find.text('80'), findsNothing);
+    expect(find.text('380'), findsNothing);
+    expect(find.textContaining('Teller eintragen'), findsNothing);
+    expect(find.text('Eintragen'), findsOneWidget);
+    expect(find.byKey(const Key('reset-meal')), findsNothing);
+  });
+
+  testWidgets('reset is hidden while editing a saved meal', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        AddFoodAlertBody(
+          editMode: true,
+          initialName: 'Shake',
+          initialGrams: 60,
+          initialKcalPer100g: 352,
+          onAddFood: (_) async {},
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Shake'), findsOneWidget);
+    expect(find.text('Zurücksetzen'), findsNothing);
   });
 }

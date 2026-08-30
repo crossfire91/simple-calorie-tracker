@@ -371,6 +371,7 @@ class S {
   String get reEstimate => _t('Re-estimate', 'Neu schätzen');
   String get addServing => _t('Add serving', 'Portion hinzufügen');
   String get logMeal => _t('Log meal', 'Eintragen');
+  String get resetMeal => _t('Reset', 'Zurücksetzen');
   String get readingPlate => _t('Analyzing the photo…', 'Foto wird ausgewertet…');
   String get lookingThatUp => _t('Looking that up…', 'Wird nachgeschlagen…');
   String get listening => _t('Listening… tap again to estimate.', 'Aufnahme läuft… erneut tippen zum Schätzen.');

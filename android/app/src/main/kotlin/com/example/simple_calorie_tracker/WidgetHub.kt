@@ -7,6 +7,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.Bundle
 import android.view.View
 import android.widget.RemoteViews
 import java.text.NumberFormat
@@ -24,6 +25,7 @@ object WidgetHub {
         refresh(context, CalorieWidgetProvider::class.java)
         refresh(context, CoachWidgetProvider::class.java)
         refresh(context, ProteinWidgetProvider::class.java)
+        refresh(context, PlateWidgetProvider::class.java)
     }
 
     fun refresh(context: Context, type: Class<out AppWidgetProvider>) {
@@ -35,6 +37,7 @@ object WidgetHub {
             val views = when (type) {
                 CoachWidgetProvider::class.java -> bindCoach(context, snapshot)
                 ProteinWidgetProvider::class.java -> bindProtein(context, snapshot)
+                PlateWidgetProvider::class.java -> bindPlate(context, snapshot, manager.getAppWidgetOptions(id))
                 else -> bindCompact(context, snapshot)
             }
             manager.updateAppWidget(id, views)
@@ -118,6 +121,183 @@ object WidgetHub {
         }
         views.setOnClickPendingIntent(R.id.widget_root, launch(context, ACTION_OPEN, 30))
         return views
+    }
+
+    fun bindPlate(
+        context: Context,
+        snapshot: CalorieWidgetStore.Snapshot,
+        options: Bundle? = null,
+    ): RemoteViews {
+        val views = RemoteViews(context.packageName, R.layout.plate_widget)
+        val numbers = todayNumbers(snapshot)
+        val consumed = numbers.first
+        val remaining = numbers.third
+        val over = remaining < 0
+        val german = snapshot.german
+        val today = snapshot.dateKey.isEmpty() || snapshot.dateKey == todayDateKey()
+        val meals = if (today) snapshot.meals else emptyList()
+        val mealCount = if (today) snapshot.mealCount else 0
+        val rows = plateRows(options)
+        val visible = meals.take(rows)
+        val hidden = (mealCount - visible.size).coerceAtLeast(0)
+        val atRisk = snapshot.streak > 0 && mealCount <= 0
+        val tone = color(
+            context,
+            when {
+                over -> R.color.widget_rose
+                atRisk -> R.color.widget_coral
+                mealCount <= 0 -> R.color.widget_accent_soft
+                else -> R.color.widget_mint
+            },
+        )
+
+        views.setTextViewText(
+            R.id.widget_title,
+            when {
+                mealCount <= 0 && german -> "Heute"
+                mealCount <= 0 -> "Today"
+                german -> "Gegessen"
+                else -> "Eaten"
+            },
+        )
+        views.setTextColor(R.id.widget_title, tone)
+        views.setTextViewText(
+            R.id.widget_remaining,
+            if (mealCount <= 0) {
+                if (german) "Noch leer" else "Still open"
+            } else {
+                formatKcal(consumed, german)
+            },
+        )
+        views.setTextColor(
+            R.id.widget_remaining,
+            color(context, if (over) R.color.widget_rose else R.color.widget_text),
+        )
+        views.setTextViewText(
+            R.id.widget_label,
+            when {
+                mealCount <= 0 && german -> "ERSTER TELLER OFFEN"
+                mealCount <= 0 -> "FIRST PLATE OPEN"
+                german -> "KCAL HEUTE"
+                else -> "KCAL TODAY"
+            },
+        )
+        views.setTextColor(R.id.widget_label, tone)
+        bindStreak(context, views, snapshot, atRisk)
+
+        if (mealCount <= 0) {
+            views.setViewVisibility(R.id.widget_progress, View.GONE)
+            views.setViewVisibility(R.id.widget_progress_over, View.GONE)
+            views.setViewVisibility(R.id.widget_used, View.GONE)
+            views.setViewVisibility(R.id.widget_meals, View.GONE)
+            views.setViewVisibility(R.id.widget_overflow, View.GONE)
+            views.setViewVisibility(R.id.widget_empty, View.VISIBLE)
+            views.setTextViewText(
+                R.id.widget_empty,
+                if (german) {
+                    "Der erste Teller macht den Tag."
+                } else {
+                    "The first plate starts the day."
+                },
+            )
+        } else {
+            views.setViewVisibility(R.id.widget_empty, View.GONE)
+            views.setViewVisibility(R.id.widget_meals, View.VISIBLE)
+            views.setViewVisibility(R.id.widget_used, View.VISIBLE)
+            views.setTextViewText(
+                R.id.widget_used,
+                plateMeta(mealCount, remaining, over, german),
+            )
+            bindProgress(views, consumed, numbers.second, over)
+            views.removeAllViews(R.id.widget_meals)
+            visible.forEachIndexed { index, meal ->
+                views.addView(R.id.widget_meals, bindMealRow(context, meal, index, german))
+            }
+            if (hidden > 0) {
+                views.setViewVisibility(R.id.widget_overflow, View.VISIBLE)
+                views.setTextViewText(
+                    R.id.widget_overflow,
+                    if (german) "+$hidden weitere" else "+$hidden more",
+                )
+            } else {
+                views.setViewVisibility(R.id.widget_overflow, View.GONE)
+            }
+        }
+
+        views.setTextViewText(
+            R.id.widget_add,
+            if (mealCount <= 0) {
+                if (german) "+ Essen hinzufügen" else "+ Add food"
+            } else if (german) {
+                "+ Neu"
+            } else {
+                "+ New"
+            },
+        )
+        views.setOnClickPendingIntent(R.id.widget_add, launch(context, ACTION_ADD, 51, "add"))
+        views.setOnClickPendingIntent(R.id.widget_root, launch(context, ACTION_OPEN, 50))
+        return views
+    }
+
+    private fun bindMealRow(
+        context: Context,
+        meal: CalorieWidgetStore.MealLine,
+        index: Int,
+        german: Boolean,
+    ): RemoteViews {
+        val row = RemoteViews(context.packageName, R.layout.plate_meal_row)
+        val name = meal.name.ifBlank { if (german) "Mahlzeit" else "Meal" }
+        row.setTextViewText(R.id.widget_meal_name, name)
+        row.setTextViewText(R.id.widget_meal_kcal, formatKcal(meal.kcal, german))
+        if (meal.time.isBlank()) {
+            row.setViewVisibility(R.id.widget_meal_time, View.GONE)
+        } else {
+            row.setViewVisibility(R.id.widget_meal_time, View.VISIBLE)
+            row.setTextViewText(R.id.widget_meal_time, meal.time)
+        }
+        row.setInt(R.id.widget_meal_bar, "setColorFilter", plateSwatch(context, index))
+        row.setOnClickPendingIntent(R.id.widget_meal_root, launch(context, ACTION_OPEN, 52 + index))
+        return row
+    }
+
+    private fun plateMeta(mealCount: Int, remaining: Int, over: Boolean, german: Boolean): String {
+        val plates = if (german) {
+            if (mealCount == 1) "1 Teller" else "$mealCount Teller"
+        } else {
+            if (mealCount == 1) "1 plate" else "$mealCount plates"
+        }
+        val rest = formatKcal(Math.abs(remaining), german)
+        return when {
+            over && german -> "$plates · $rest drüber"
+            over -> "$plates · $rest over"
+            german -> "$plates · $rest übrig"
+            else -> "$plates · $rest left"
+        }
+    }
+
+    private fun plateRows(options: Bundle?): Int {
+        val minH = options?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0) ?: 0
+        return when {
+            minH >= 380 -> 6
+            minH >= 320 -> 5
+            minH >= 250 -> 4
+            minH > 0 -> 3
+            else -> 4
+        }
+    }
+
+    private fun plateSwatch(context: Context, index: Int): Int {
+        val ids = intArrayOf(
+            R.color.widget_accent_soft,
+            R.color.widget_mint,
+            R.color.widget_swatch_violet,
+            R.color.widget_swatch_gold,
+            R.color.widget_swatch_pink,
+            R.color.widget_accent,
+            R.color.widget_swatch_lilac,
+            R.color.widget_swatch_sky,
+        )
+        return color(context, ids[index % ids.size])
     }
 
     private fun bindHero(

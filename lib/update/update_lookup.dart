@@ -5,7 +5,7 @@ import 'package:simple_calorie_tracker/update/update_release.dart';
 /// Newest published release, or null if the catalog could not be read.
 Future<UpdateRelease?> fetchNewestRelease() async {
   final manifest = await _fromManifest();
-  if (manifest != null) return manifest;
+  if (manifest != null && manifest.hasApk) return manifest;
   return _fromGithub();
 }
 

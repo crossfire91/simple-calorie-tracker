@@ -32,4 +32,33 @@ void main() {
     expect(HomeWidgetSync.parseAction({'action': ''}), isNull);
     expect(HomeWidgetSync.parseAction(null), isNull);
   });
+
+  test('builds chronological plate lines for the journal widget', () {
+    final eightFourteen = DateTime(2026, 8, 30, 8, 14).millisecondsSinceEpoch;
+    final lines = HomeWidgetSync.mealLines([
+      {
+        'name': '  Hafer  ',
+        'kcalPer100g': 350,
+        'weightInGrams': 100,
+        'loggedAt': eightFourteen,
+      },
+      {
+        'name': '',
+        'kcalPer100g': 200,
+        'weightInGrams': 50,
+        'loggedAt': 0,
+      },
+      {
+        'name': 'Joghurt',
+        'kcalPer100g': 80,
+        'weightInGrams': 150,
+        'loggedAt': DateTime(2026, 8, 30, 15, 2).millisecondsSinceEpoch,
+      },
+    ], limit: 2);
+
+    expect(lines, [
+      {'name': 'Hafer', 'kcal': 350, 'time': '08:14'},
+      {'name': '', 'kcal': 100, 'time': ''},
+    ]);
+  });
 }
