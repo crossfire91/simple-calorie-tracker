@@ -21,6 +21,7 @@ import 'package:simple_calorie_tracker/widgets/calorie_calendar.dart';
 import 'package:simple_calorie_tracker/widgets/calorie_ring.dart';
 import 'package:simple_calorie_tracker/l10n/strings.dart';
 import 'package:simple_calorie_tracker/nutrition/api_keys.dart';
+import 'package:simple_calorie_tracker/nutrition/ingredient_memory.dart';
 import 'package:simple_calorie_tracker/nutrition/models.dart';
 import 'package:simple_calorie_tracker/widgets/daily_target_form.dart';
 import 'package:simple_calorie_tracker/widgets/favorite_meals_strip.dart';
@@ -62,7 +63,10 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
   bool _celebrate = false;
   bool _hasGemini = false;
   bool _newestMealsFirst = true;
+  IngredientMemory _ingredientMemory = IngredientMemory.empty();
+  String? _arrivingMealId;
   final ValueNotifier<int?> _ringFocus = ValueNotifier<int?>(null);
+  final GlobalKey _ringKey = GlobalKey();
   UpdateStatus? _updateStatus;
 
   updateChart() {
@@ -118,22 +122,45 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
   bool get _isFuture =>
       JourneyMath.dayOnly(selectedDate).isAfter(JourneyMath.dayOnly(DateTime.now()));
 
-  Future<void> _afterMealChange(double before) async {
+  Future<void> _revealMealThenFeed(double before, {String? arrivingId}) async {
+    if (mounted) Navigator.pop(context);
+    await Future<void>.delayed(const Duration(milliseconds: kAppDialogCollapseMs));
+    if (!mounted) return;
+    await _afterMealChange(before, arrivingId: arrivingId);
+  }
+
+  Future<void> _afterMealChange(double before, {String? arrivingId}) async {
+    if (arrivingId != null) _arrivingMealId = arrivingId;
     currentDaysItems = await widget.observer.getDaysItems(selectedDate);
     updateChart();
     await _reloadJourney();
     await _reloadDigests();
+    await _reloadIngredientMemory();
     if (!mounted) return;
-    if (_isToday &&
-        StreakMath.ringJustClosed(before, totalKcalConsumed, kcalBudget)) {
+    final closed = _isToday &&
+        StreakMath.ringJustClosed(before, totalKcalConsumed, kcalBudget);
+    if (closed) {
       HapticFeedback.heavyImpact();
       setState(() => _celebrate = true);
       Future.delayed(const Duration(milliseconds: 1600), () {
         if (mounted) setState(() => _celebrate = false);
       });
-    } else {
-      setState(() {});
+    } else if (arrivingId != null) {
+      HapticFeedback.mediumImpact();
     }
+    if (arrivingId != null) {
+      Future.delayed(const Duration(milliseconds: 800), () {
+        if (mounted && _arrivingMealId == arrivingId) {
+          setState(() => _arrivingMealId = null);
+        }
+      });
+    }
+  }
+
+  Future<void> _reloadIngredientMemory() async {
+    final next = await widget.observer.getIngredientMemory() as IngredientMemory;
+    if (!mounted) return;
+    _ingredientMemory = next;
   }
 
   Future<void> _selectDate(DateTime date) async {
@@ -320,6 +347,7 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
     }
     await _reloadJourney();
     await _reloadDigests();
+    await _reloadIngredientMemory();
     await _refreshGeminiUnlock();
     updateChart();
     final langName = sharedPreferences?.getString('appLang');
@@ -398,6 +426,7 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
     final s = S.of(context);
     showAppDialog(
       context: context,
+      collapseInto: _ringKey,
       child: AppDialogCard(
         icon: snap
             ? Icons.photo_camera_rounded
@@ -428,8 +457,10 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
           onUnlockEstimate: serving ? null : _showApiKeys,
           loadPhotoForQuick: serving ? null : _latestPhotoForName,
           kcalPer100gOverride: serving ? currentDaysItems[index]["kcalPer100g"] : null,
+          ingredientMemory: _ingredientMemory,
           onAddFood: (draft) async {
             final before = totalKcalConsumed;
+            String? arrivingId;
             if (serving) {
               currentDaysItems[index]["weightInGrams"] += (await widget.observer.addFood(
                 draft.kcalPer100g,
@@ -442,7 +473,7 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
                 proteinG: draft.proteinG,
               ))["weightInGrams"];
             } else {
-              currentDaysItems.add(await widget.observer.addFood(
+              final added = await widget.observer.addFood(
                 draft.kcalPer100g,
                 draft.weightInGrams,
                 selectedDate,
@@ -453,10 +484,10 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
                 pinFavorite: draft.pinFavorite,
                 breakdown: draft.breakdown,
                 description: draft.description,
-              ));
+              );
+              arrivingId = added['id'] as String?;
             }
-            if (mounted) Navigator.pop(context);
-            await _afterMealChange(before);
+            await _revealMealThenFeed(before, arrivingId: arrivingId);
           },
         ),
       ),
@@ -476,6 +507,7 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
     final estimate = MealEstimate.decodeForGrams(item['breakdown'] as String?, grams);
     showAppDialog(
       context: context,
+      collapseInto: _ringKey,
       child: AppDialogCard(
         icon: Icons.edit_rounded,
         title: s.editMeal,
@@ -490,6 +522,7 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
           initialDescription: (item['description'] as String?) ?? '',
           estimateUnlocked: _hasGemini,
           onUnlockEstimate: _showApiKeys,
+          ingredientMemory: _ingredientMemory,
           onAddFood: (draft) async {
             final before = totalKcalConsumed;
             currentDaysItems[index] = await widget.observer.updateFood(
@@ -504,8 +537,7 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
               breakdown: draft.breakdown,
               description: draft.description,
             );
-            if (mounted) Navigator.pop(context);
-            await _afterMealChange(before);
+            await _revealMealThenFeed(before);
           },
         ),
       ),
@@ -646,6 +678,7 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
         await _reloadJourney();
       }
       if (mounted) await _reloadDigests();
+      if (mounted) await _reloadIngredientMemory();
       if (mounted) await _refreshGeminiUnlock();
       await widget.observer.syncHomeWidget();
       if (mounted) await HomeWidgetSync.listen(_onWidgetAction);
@@ -832,6 +865,7 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
                                     valueListenable: _ringFocus,
                                     builder: (context, focus, _) {
                                       return CalorieRing(
+                                        key: _ringKey,
                                         consumed: totalKcalConsumed,
                                         budget: kcalBudget,
                                         ghostConsumed: _yesterdayKcal,
@@ -912,8 +946,10 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
                                   return ValueListenableBuilder<int?>(
                                     valueListenable: _ringFocus,
                                     builder: (context, focus, _) {
-                                      return MealCard(
+                                      return ArrivingMeal(
                                     key: ValueKey(item['id']),
+                                    arrive: item['id'] == _arrivingMealId,
+                                    child: MealCard(
                                     name: name,
                                     description: (item['description'] as String?) ?? '',
                                     kcal: kcal.toDouble(),
@@ -941,7 +977,8 @@ class CcalorieSummaryScreenViewState extends State<CalorieSummaryScreenView> {
                                         },
                                       );
                                     },
-                                      );
+                                      ),
+                                    );
                                     },
                                   );
                                 },

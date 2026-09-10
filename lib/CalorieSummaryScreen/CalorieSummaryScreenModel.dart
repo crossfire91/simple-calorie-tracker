@@ -16,6 +16,7 @@ import 'package:simple_calorie_tracker/habit/streak.dart';
 import 'package:simple_calorie_tracker/l10n/app_lang.dart';
 import 'package:simple_calorie_tracker/l10n/strings.dart';
 import 'package:simple_calorie_tracker/platform/home_widget_sync.dart';
+import 'package:simple_calorie_tracker/nutrition/ingredient_memory.dart';
 import 'package:simple_calorie_tracker/widgets/meal_image.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
@@ -849,6 +850,25 @@ class CalorieSummaryScreenModel {
     final counts = await (await _backupRepo()).restore(snapshot);
     await syncHomeWidget();
     return counts;
+  }
+
+  Future<IngredientMemory> getIngredientMemory() async {
+    await _initDbAndTable();
+    final rows = await db!.query(
+      'trackedMeals',
+      columns: ['name', 'kcalPer100g', 'breakdown', 'loggedAt'],
+      orderBy: 'loggedAt DESC',
+      limit: 400,
+    );
+    return IngredientMemory.fromMeals([
+      for (final row in rows)
+        LoggedPlate(
+          name: (row['name'] as String?) ?? '',
+          kcalPer100g: (row['kcalPer100g'] as num?)?.toInt() ?? 0,
+          breakdown: (row['breakdown'] as String?) ?? '',
+          loggedAt: (row['loggedAt'] as num?)?.toInt() ?? 0,
+        ),
+    ]);
   }
 }
 

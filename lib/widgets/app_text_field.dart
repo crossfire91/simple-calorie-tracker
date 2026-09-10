@@ -19,6 +19,7 @@ class AppTextField extends StatefulWidget {
   final ValueChanged<String>? onSubmitted;
   final bool clearable;
   final bool prominent;
+  final bool compact;
   final bool autofocus;
   final double? scrubMin;
   final double? scrubMax;
@@ -40,6 +41,7 @@ class AppTextField extends StatefulWidget {
     this.onSubmitted,
     this.clearable = true,
     this.prominent = false,
+    this.compact = false,
     this.autofocus = false,
     this.scrubMin,
     this.scrubMax,
@@ -202,6 +204,7 @@ class _AppTextFieldState extends State<AppTextField> {
     final trailing = _trailing;
 
     final prominent = widget.prominent;
+    final compact = widget.compact;
     final field = GestureDetector(
       onTap: () => _focus.requestFocus(),
       onLongPress: _canScrub ? _toggleScrub : null,
@@ -209,7 +212,9 @@ class _AppTextFieldState extends State<AppTextField> {
         duration: const Duration(milliseconds: 160),
         padding: prominent
             ? const EdgeInsets.fromLTRB(16, 8, 10, 8)
-            : const EdgeInsets.fromLTRB(12, 2, 8, 2),
+            : compact
+                ? const EdgeInsets.fromLTRB(8, 2, 4, 2)
+                : const EdgeInsets.fromLTRB(12, 2, 8, 2),
         decoration: BoxDecoration(
           color: prominent
               ? Color.alphaBlend(
@@ -239,10 +244,14 @@ class _AppTextFieldState extends State<AppTextField> {
                       : prominent
                           ? AppColors.accentSoft
                           : AppColors.textMuted,
-                  size: prominent ? 22 : 20,
+                  size: prominent
+                      ? 22
+                      : compact
+                          ? 18
+                          : 20,
                 ),
               ),
-              SizedBox(width: prominent ? 10 : 8),
+              SizedBox(width: prominent ? 10 : compact ? 6 : 8),
             ],
             Expanded(
               child: TextField(

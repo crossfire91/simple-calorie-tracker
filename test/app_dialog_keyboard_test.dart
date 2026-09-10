@@ -119,4 +119,43 @@ void main() {
     await tester.pump(const Duration(milliseconds: 120));
     expect(_dialogScroll(tester).pixels, greaterThan(afterFling));
   });
+
+  testWidgets('a meal dialog collapses toward a ring target', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final ring = GlobalKey();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.dark(),
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(key: ring, width: 120, height: 120),
+          ),
+        ),
+      ),
+    );
+
+    final opened = showAppDialog<void>(
+      context: tester.element(find.byType(Scaffold)),
+      collapseInto: ring,
+      child: const AppDialogCard(
+        icon: Icons.restaurant_rounded,
+        title: 'Mahlzeit',
+        child: SizedBox(height: 80, child: Text('Formular')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Mahlzeit'), findsOneWidget);
+
+    Navigator.pop(tester.element(find.byType(AppDialogCard)));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 240));
+    expect(tester.takeException(), isNull);
+    await tester.pumpAndSettle();
+    await opened;
+    expect(find.text('Mahlzeit'), findsNothing);
+  });
 }

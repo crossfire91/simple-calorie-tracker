@@ -40,6 +40,7 @@ class _CalorieRingState extends State<CalorieRing> with TickerProviderStateMixin
   late final AnimationController _intro;
   double _from = 0;
   int _fillMs = 1260;
+  int _fillGen = 0;
   int? _internal;
   int? _painted;
   bool _panned = false;
@@ -87,6 +88,10 @@ class _CalorieRingState extends State<CalorieRing> with TickerProviderStateMixin
     super.didUpdateWidget(oldWidget);
     if (oldWidget.consumed != widget.consumed || oldWidget.budget != widget.budget) {
       _from = _progressOf(oldWidget.consumed, oldWidget.budget);
+      if (widget.consumed > oldWidget.consumed) {
+        _fillMs = 920;
+        _fillGen++;
+      }
     }
     if (widget.celebrate && !oldWidget.celebrate) {
       _pulse.forward(from: 0);
@@ -195,6 +200,7 @@ class _CalorieRingState extends State<CalorieRing> with TickerProviderStateMixin
     final leftoverFocused = _selected == RingHit.leftover;
 
     return TweenAnimationBuilder<double>(
+      key: ValueKey(_fillGen),
       tween: Tween(begin: _from, end: displayProgress),
       duration: Duration(milliseconds: _fillMs),
       curve: Curves.easeOutCubic,

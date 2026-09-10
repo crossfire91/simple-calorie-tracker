@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:simple_calorie_tracker/backup/backup_payload.dart';
+import 'package:simple_calorie_tracker/nutrition/ingredient_memory.dart';
 
 class CalorieSummaryScreenController{
 
@@ -166,6 +167,10 @@ class CalorieSummaryScreenController{
 
   Future<BackupCounts> restoreBackup(BackupSnapshot snapshot) async {
     return await model.restoreBackup(snapshot);
+  }
+
+  Future<IngredientMemory> getIngredientMemory() async {
+    return await model.getIngredientMemory();
   }
 
 }

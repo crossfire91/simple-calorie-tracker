@@ -1,6 +1,6 @@
 {
-  "versionName": "1.2.3",
-  "versionCode": 6,
-  "apkUrl": "https://github.com/crossfire91/simple-calorie-tracker/releases/download/v1.2.3/app-release.apk",
-  "notes": "Zutatenlisten bleiben bei der Foto-Schätzung erhalten. Felder lassen sich löschen, Zahlen per langem Druck feiner stellen."
+  "versionName": "1.2.4",
+  "versionCode": 7,
+  "apkUrl": "https://github.com/crossfire91/simple-calorie-tracker/releases/download/v1.2.4/app-release.apk",
+  "notes": "Bekannte Zutaten merken sich kcal/100g. Neue Mahlzeiten fliegen in den Ring und erscheinen in der Liste."
 }

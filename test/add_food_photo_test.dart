@@ -4,9 +4,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:simple_calorie_tracker/AddFoodAlertBody/AddFoodAlertBody.dart';
 import 'package:simple_calorie_tracker/habit/favorites.dart';
 import 'package:simple_calorie_tracker/l10n/app_lang.dart';
+import 'package:simple_calorie_tracker/nutrition/ingredient_memory.dart';
 import 'package:simple_calorie_tracker/nutrition/models.dart';
 import 'package:simple_calorie_tracker/nutrition/photo_calorie_service.dart';
 import 'package:simple_calorie_tracker/theme/app_theme.dart';
+import 'package:simple_calorie_tracker/widgets/app_dialog.dart';
+import 'package:simple_calorie_tracker/widgets/app_text_field.dart';
 
 class _ScriptedCalories extends PhotoCalorieService {
   _ScriptedCalories(this.replies);
@@ -126,7 +129,7 @@ void main() {
     );
     expect(
       tester.getTopLeft(find.text('Zutat').first).dx,
-      greaterThan(tester.getTopLeft(find.text('Was isst du?')).dx + 8),
+      closeTo(tester.getTopLeft(find.text('Was isst du?')).dx, 16),
     );
 
     final fields = find.byType(TextField);
@@ -143,11 +146,11 @@ void main() {
     final weightBox = tester.getRect(fields.at(2));
     final energyBox = tester.getRect(fields.at(3));
     expect(nameBox.height, closeTo(weightBox.height, 8));
-    expect(weightBox.width, greaterThan(80));
-    expect(energyBox.width, greaterThan(70));
+    expect(weightBox.width, greaterThan(100));
+    expect(energyBox.width, greaterThan(100));
     expect(
       tester.getRect(find.text('kcal / 100g')).right,
-      closeTo(nameBox.right, 8),
+      closeTo(tester.getRect(find.byType(AppTextField).first).right, 20),
     );
     expect(
       tester.getTopLeft(find.text('150')).dx,
@@ -161,6 +164,45 @@ void main() {
     expect(
       tester.getTopLeft(find.text('kcal / 100g')).dx,
       greaterThan(tester.getTopRight(find.text('380')).dx - 2),
+    );
+  });
+
+  testWidgets('ingredient metrics keep room inside a zoomed phone dialog', (tester) async {
+    tester.view.physicalSize = const Size(360, 780);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      LocaleScope(
+        controller: LocaleController(AppLang.de),
+        child: MaterialApp(
+          theme: AppTheme.dark(),
+          builder: (context, app) {
+            return MediaQuery(
+              data: MediaQuery.of(context).copyWith(textScaler: const TextScaler.linear(1.3)),
+              child: app!,
+            );
+          },
+          home: AppDialogCard(
+            icon: Icons.restaurant_rounded,
+            title: 'Mahlzeit',
+            child: AddFoodAlertBody(
+              onAddFood: (_) async {},
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final fields = find.byType(TextField);
+    final titleBox = tester.getRect(fields.first);
+    final energyBox = tester.getRect(fields.at(3));
+    expect(energyBox.width, greaterThan(titleBox.width * 0.72));
+    expect(energyBox.width, greaterThan(180));
+    expect(
+      tester.getTopLeft(find.text('Gewicht')).dx,
+      greaterThan(tester.getTopLeft(find.text('Zutat').first).dx + 8),
     );
   });
 
@@ -282,6 +324,8 @@ void main() {
     expect(find.text('Apfel'), findsNWidgets(2));
     expect(find.text('180'), findsWidgets);
     expect(find.text('52'), findsWidgets);
+    expect(find.text('94 kcal'), findsOneWidget);
+    expect(find.byKey(const Key('ingredient-card')), findsOneWidget);
     expect(find.text('oder Gesamt-kcal'), findsOneWidget);
     expect(find.text('Zutat hinzufügen'), findsOneWidget);
     expect(find.text('Zutaten nachschlagen'), findsOneWidget);
@@ -295,6 +339,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Zutat'), findsNWidgets(2));
+    expect(find.byKey(const Key('ingredient-card')), findsNWidgets(2));
     expect(
       find.text('Die erste Zeile ist, was du oben getippt hast. Weitere Zeilen für ein gemischtes Gericht.'),
       findsNothing,
@@ -445,6 +490,52 @@ void main() {
     await tester.pump();
     expect(find.text('Quark'), findsNWidgets(2));
     expect(find.text('Skyr'), findsNothing);
+  });
+
+  testWidgets('a known ingredient fills energy from past meals', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        AddFoodAlertBody(
+          onAddFood: (_) async {},
+          ingredientMemory: IngredientMemory.fromMeals([
+            const LoggedPlate(name: 'Mandelmilch', kcalPer100g: 24),
+          ]),
+        ),
+      ),
+    );
+
+    await tester.enterText(find.byType(TextField).at(1), 'Mandelmilch');
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('24'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).at(3), '18');
+    await tester.pump();
+    await tester.enterText(find.byType(TextField).at(1), 'Hafermilch');
+    await tester.pump();
+    expect(find.text('18'), findsOneWidget);
+    expect(find.text('24'), findsNothing);
+  });
+
+  testWidgets('recalling from the title does not rebuild during build', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        AddFoodAlertBody(
+          onAddFood: (_) async {},
+          ingredientMemory: IngredientMemory.fromMeals([
+            const LoggedPlate(name: 'Mandelmilch', kcalPer100g: 24),
+          ]),
+        ),
+      ),
+    );
+
+    await tester.enterText(find.byType(TextField).first, 'Mandelmilch');
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Mandelmilch'), findsNWidgets(2));
+    expect(find.text('24'), findsOneWidget);
   });
 
   testWidgets('long original note stays folded under a short title', (tester) async {

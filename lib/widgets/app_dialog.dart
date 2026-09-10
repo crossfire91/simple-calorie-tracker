@@ -4,29 +4,72 @@ import 'package:simple_calorie_tracker/theme/app_colors.dart';
 import 'package:simple_calorie_tracker/theme/grip_scroll.dart';
 import 'package:simple_calorie_tracker/widgets/app_button.dart';
 
+const kAppDialogCollapseMs = 460;
+
 Future<T?> showAppDialog<T>({
   required BuildContext context,
   required Widget child,
   bool barrierDismissible = true,
+  GlobalKey? collapseInto,
 }) {
   return showGeneralDialog<T>(
     context: context,
     barrierDismissible: barrierDismissible,
     barrierLabel: 'Dismiss',
     barrierColor: Colors.transparent,
-    transitionDuration: const Duration(milliseconds: 340),
+    transitionDuration: Duration(milliseconds: collapseInto == null ? 340 : kAppDialogCollapseMs),
     pageBuilder: (context, animation, secondaryAnimation) => child,
     transitionBuilder: (context, animation, secondaryAnimation, child) {
-      final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
-      return FadeTransition(
-        opacity: curved,
-        child: SlideTransition(
-          position: Tween<Offset>(begin: const Offset(0, 0.04), end: Offset.zero).animate(curved),
-          child: ScaleTransition(
-            scale: Tween<double>(begin: 0.96, end: 1).animate(curved),
-            child: child,
+      if (collapseInto == null) {
+        final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
+        return FadeTransition(
+          opacity: curved,
+          child: SlideTransition(
+            position: Tween<Offset>(begin: const Offset(0, 0.04), end: Offset.zero).animate(curved),
+            child: ScaleTransition(
+              scale: Tween<double>(begin: 0.96, end: 1).animate(curved),
+              child: child,
+            ),
           ),
-        ),
+        );
+      }
+      return AnimatedBuilder(
+        animation: animation,
+        builder: (context, child) {
+          if (animation.status != AnimationStatus.reverse) {
+            final t = Curves.easeOutCubic.transform(animation.value);
+            return Opacity(
+              opacity: t,
+              child: Transform.translate(
+                offset: Offset(0, 16 * (1 - t)),
+                child: Transform.scale(scale: 0.96 + 0.04 * t, child: child),
+              ),
+            );
+          }
+          final fly = Curves.easeInCubic.transform(1 - animation.value);
+          var dx = 0.0;
+          var dy = -140.0;
+          final ringBox = collapseInto.currentContext?.findRenderObject();
+          if (ringBox is RenderBox && ringBox.hasSize && ringBox.attached) {
+            final to = ringBox.localToGlobal(ringBox.size.center(Offset.zero));
+            final size = MediaQuery.sizeOf(context);
+            final from = Offset(size.width / 2, size.height * 0.45);
+            dx = to.dx - from.dx;
+            dy = to.dy - from.dy;
+          }
+          return Opacity(
+            opacity: (1 - fly * 1.25).clamp(0.0, 1.0),
+            child: Transform.translate(
+              offset: Offset(dx * fly, dy * fly),
+              child: Transform.scale(
+                scale: (1 - 0.92 * fly).clamp(0.06, 1),
+                alignment: Alignment.center,
+                child: child,
+              ),
+            ),
+          );
+        },
+        child: child,
       );
     },
   );
@@ -52,6 +95,10 @@ class AppDialogCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final media = MediaQuery.of(context);
+    final tight = media.size.width < 400 || media.textScaler.scale(1) >= 1.15;
+    final outerH = tight ? 8.0 : 12.0;
+    final innerH = tight ? 12.0 : 16.0;
     return Material(
       color: AppColors.overlay,
       child: SafeArea(
@@ -60,13 +107,13 @@ class AppDialogCard extends StatelessWidget {
             Expanded(
               child: SingleChildScrollView(
                 physics: const GripScrollPhysics(),
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                padding: EdgeInsets.symmetric(horizontal: outerH, vertical: tight ? 12 : 18),
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 440),
                   child: Container(
                     decoration: AppColors.glass(radius: 28),
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(22, 18, 22, 22),
+                      padding: EdgeInsets.fromLTRB(innerH, 16, innerH, 18),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [

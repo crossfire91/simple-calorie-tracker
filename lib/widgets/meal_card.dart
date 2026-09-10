@@ -538,3 +538,38 @@ class MealsEmptyState extends StatelessWidget {
     );
   }
 }
+
+class ArrivingMeal extends StatelessWidget {
+  final bool arrive;
+  final Widget child;
+
+  const ArrivingMeal({
+    super.key,
+    required this.arrive,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (!arrive) return child;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 480),
+      curve: Curves.easeOutCubic,
+      builder: (context, t, child) {
+        return Opacity(
+          opacity: t,
+          child: Transform.translate(
+            offset: Offset(0, 22 * (1 - t)),
+            child: Transform.scale(
+              scale: 0.94 + 0.06 * t,
+              alignment: Alignment.topCenter,
+              child: child,
+            ),
+          ),
+        );
+      },
+      child: child,
+    );
+  }
+}
