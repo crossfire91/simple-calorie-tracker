@@ -83,6 +83,34 @@ void main() {
     );
   });
 
+  test('a matching title and ingredient is only a description', () {
+    expect(
+      mealNoteIsOnlyADescription(title: 'Pizza', ingredientNames: const ['Pizza']),
+      isTrue,
+    );
+    expect(
+      mealNoteIsOnlyADescription(title: 'Shake', ingredientNames: const ['Shake', 'Mandelmilch']),
+      isFalse,
+    );
+    expect(
+      formatMealEstimateNote(
+        title: 'Pizza',
+        ingredients: const [DetectedFood(name: 'Pizza', queryEn: 'pizza', grams: 0)],
+      ),
+      'Pizza',
+    );
+    expect(
+      formatMealEstimateNote(
+        title: 'Shake',
+        ingredients: const [
+          DetectedFood(name: 'Shake', queryEn: 'shake', grams: 0),
+          DetectedFood(name: 'Mandelmilch', queryEn: 'almond milk', grams: 300),
+        ],
+      ),
+      'Meal: Shake\nIngredients:\n- Shake\n- Mandelmilch 300g',
+    );
+  });
+
   test('a typed note can be split into a manual menu', () {
     final items = splitMealNote(
       'doppelte more protein shake matcha 1 scoop gemacht mit mandelmilch 300ml, und 300ml wasser',

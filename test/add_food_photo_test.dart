@@ -62,8 +62,15 @@ void main() {
     expect(find.text('Schätzen freischalten'), findsOneWidget);
     expect(find.text('Diesen Text nachschlagen'), findsNothing);
     expect(find.text('Eintragen'), findsOneWidget);
-    expect(find.text('Menü anlegen'), findsOneWidget);
+    expect(find.text('Zutat hinzufügen'), findsOneWidget);
+    expect(find.text('Zutaten hinzufügen'), findsNothing);
     expect(find.text('Oats'), findsNothing);
+
+    await tester.pump();
+    expect(
+      tester.widget<TextField>(find.byType(TextField).first).focusNode?.hasFocus,
+      isTrue,
+    );
 
     await tester.pumpWidget(
       _wrap(
@@ -93,7 +100,8 @@ void main() {
     );
     await tester.pump();
     expect(find.text('Schätzen'), findsOneWidget);
-    await tester.tap(find.text('Schätzen'));
+    await tester.ensureVisible(find.byKey(const Key('estimate-meal')));
+    await tester.tap(find.byKey(const Key('estimate-meal')));
     await tester.pump();
     expect(find.text('Mahlzeit beschreiben, diktieren oder ein Foto hinzufügen.'), findsOneWidget);
   });
@@ -111,14 +119,19 @@ void main() {
     expect(find.text('kcal / 100g'), findsOneWidget);
 
     expect(find.text('Was isst du?'), findsOneWidget);
+    expect(find.byIcon(Icons.restaurant_menu_rounded), findsOneWidget);
     expect(
       tester.getTopLeft(find.text('Was isst du?')).dy,
       lessThan(tester.getTopLeft(find.text('Gewicht')).dy),
     );
+    expect(
+      tester.getTopLeft(find.text('Zutat').first).dx,
+      greaterThan(tester.getTopLeft(find.text('Was isst du?')).dx + 8),
+    );
 
     final fields = find.byType(TextField);
-    await tester.enterText(fields.at(1), '150');
-    await tester.enterText(fields.at(2), '380');
+    await tester.enterText(fields.at(2), '150');
+    await tester.enterText(fields.at(3), '380');
     await tester.pump();
 
     expect(find.text('150'), findsOneWidget);
@@ -126,12 +139,16 @@ void main() {
     expect(find.text('g'), findsOneWidget);
     expect(find.text('kcal / 100g'), findsOneWidget);
 
-    final nameBox = tester.getRect(fields.at(0));
-    final weightBox = tester.getRect(fields.at(1));
-    final energyBox = tester.getRect(fields.at(2));
+    final nameBox = tester.getRect(fields.at(1));
+    final weightBox = tester.getRect(fields.at(2));
+    final energyBox = tester.getRect(fields.at(3));
     expect(nameBox.height, closeTo(weightBox.height, 8));
-    expect(weightBox.width, greaterThan(90));
-    expect(energyBox.width, greaterThan(90));
+    expect(weightBox.width, greaterThan(80));
+    expect(energyBox.width, greaterThan(70));
+    expect(
+      tester.getRect(find.text('kcal / 100g')).right,
+      closeTo(nameBox.right, 8),
+    );
     expect(
       tester.getTopLeft(find.text('150')).dx,
       greaterThan(tester.getTopRight(find.byIcon(Icons.scale_rounded)).dx + 4),
@@ -145,6 +162,30 @@ void main() {
       tester.getTopLeft(find.text('kcal / 100g')).dx,
       greaterThan(tester.getTopRight(find.text('380')).dx - 2),
     );
+  });
+
+  testWidgets('typing energy keeps the field focused after the first digit', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        AddFoodAlertBody(
+          onAddFood: (_) async {},
+        ),
+      ),
+    );
+
+    final energy = find.byType(TextField).at(3);
+    await tester.tap(energy);
+    await tester.pump();
+    await tester.enterText(energy, '3');
+    await tester.pump();
+
+    expect(tester.widget<TextField>(energy).focusNode?.hasFocus, isTrue);
+    expect(find.text('3'), findsOneWidget);
+
+    await tester.enterText(energy, '38');
+    await tester.pump();
+    expect(find.text('38'), findsOneWidget);
+    expect(tester.widget<TextField>(energy).focusNode?.hasFocus, isTrue);
   });
 
   testWidgets('favorite draft fills weight, energy, name and photo', (tester) async {
@@ -169,7 +210,7 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('Joghurt'), findsOneWidget);
+    expect(find.text('Joghurt'), findsWidgets);
     expect(find.text('150'), findsOneWidget);
     expect(find.text('80'), findsOneWidget);
     expect(find.text('Foto hinzufügen'), findsNothing);
@@ -216,13 +257,194 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.tap(find.text('Menü anlegen'));
-    await tester.pump();
 
     expect(find.text('Zutat hinzufügen'), findsOneWidget);
     expect(find.text('Zutaten nachschlagen'), findsOneWidget);
     expect(find.text('Pulver'), findsNothing);
-    expect(find.text('Name'), findsWidgets);
+    expect(find.text('Zutat'), findsWidgets);
+  });
+
+  testWidgets('ingredients copy the typed name and hide plate weight energy', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        AddFoodAlertBody(
+          onAddFood: (_) async {},
+        ),
+      ),
+    );
+
+    final fields = find.byType(TextField);
+    await tester.enterText(fields.at(0), 'Apfel');
+    await tester.enterText(fields.at(2), '180');
+    await tester.enterText(fields.at(3), '52');
+    await tester.pump();
+
+    expect(find.text('Apfel'), findsNWidgets(2));
+    expect(find.text('180'), findsWidgets);
+    expect(find.text('52'), findsWidgets);
+    expect(find.text('oder Gesamt-kcal'), findsOneWidget);
+    expect(find.text('Zutat hinzufügen'), findsOneWidget);
+    expect(find.text('Zutaten nachschlagen'), findsOneWidget);
+    expect(
+      find.text('Die erste Zeile ist, was du oben getippt hast. Weitere Zeilen für ein gemischtes Gericht.'),
+      findsOneWidget,
+    );
+
+    await tester.ensureVisible(find.text('Zutat hinzufügen'));
+    await tester.tap(find.text('Zutat hinzufügen'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Zutat'), findsNWidgets(2));
+    expect(
+      find.text('Die erste Zeile ist, was du oben getippt hast. Weitere Zeilen für ein gemischtes Gericht.'),
+      findsNothing,
+    );
+    expect(find.text('Was isst du?'), findsOneWidget);
+    expect(find.text('250'), findsNothing);
+    expect(find.text('100'), findsNothing);
+  });
+
+  testWidgets('removing the last ingredient leaves only the add and lookup buttons', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        AddFoodAlertBody(
+          onAddFood: (_) async {},
+        ),
+      ),
+    );
+
+    expect(find.text('Zutat'), findsWidgets);
+    expect(find.byKey(const Key('remove-ingredient')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('remove-ingredient')));
+    await tester.pump();
+
+    expect(find.text('Zutat'), findsNothing);
+    expect(find.byKey(const Key('remove-ingredient')), findsNothing);
+    expect(find.text('Zutat hinzufügen'), findsOneWidget);
+    expect(find.text('Zutaten nachschlagen'), findsOneWidget);
+    expect(find.text('Was isst du?'), findsOneWidget);
+  });
+
+  testWidgets('removing the first ingredient keeps what you are eating', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        AddFoodAlertBody(
+          onAddFood: (_) async {},
+        ),
+      ),
+    );
+
+    await tester.enterText(find.byType(TextField).first, 'Pizza');
+    await tester.pump();
+    expect(find.text('Pizza'), findsNWidgets(2));
+
+    await tester.tap(find.byKey(const Key('remove-ingredient')));
+    await tester.pump();
+
+    expect(find.text('Zutat'), findsNothing);
+    expect(find.byKey(const Key('remove-ingredient')), findsNothing);
+    expect(find.text('Pizza'), findsOneWidget);
+    expect(find.text('Was isst du?'), findsOneWidget);
+    expect(find.text('Zutat hinzufügen'), findsOneWidget);
+    expect(find.text('Zutaten nachschlagen'), findsOneWidget);
+  });
+
+  testWidgets('a new ingredient starts without a guessed weight', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        AddFoodAlertBody(
+          onAddFood: (_) async {},
+        ),
+      ),
+    );
+
+    expect(find.text('250'), findsNothing);
+    expect(find.text('100'), findsNothing);
+    expect(find.text('0'), findsNothing);
+
+    await tester.enterText(find.byType(TextField).first, 'Reis');
+    await tester.pump();
+    await tester.ensureVisible(find.text('Zutat hinzufügen'));
+    await tester.tap(find.text('Zutat hinzufügen'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('250'), findsNothing);
+    expect(find.text('100'), findsNothing);
+    expect(find.text('0'), findsNothing);
+    expect(find.text('Reis'), findsNWidgets(2));
+  });
+
+  testWidgets('adding another ingredient does not claim the new row was not found', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        AddFoodAlertBody(
+          onAddFood: (_) async {},
+        ),
+      ),
+    );
+
+    final fields = find.byType(TextField);
+    await tester.enterText(fields.at(0), 'Apfel');
+    await tester.enterText(fields.at(2), '180');
+    await tester.enterText(fields.at(3), '52');
+    await tester.pump();
+
+    await tester.ensureVisible(find.text('Zutat hinzufügen'));
+    await tester.tap(find.text('Zutat hinzufügen'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Kein Treffer'), findsNothing);
+    await tester.enterText(find.byType(TextField).at(4), 'Banane');
+    await tester.pump();
+    expect(find.textContaining('Kein Treffer'), findsNothing);
+    expect(find.text('Banane'), findsOneWidget);
+  });
+
+  testWidgets('a field clear button empties the typed value', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        AddFoodAlertBody(
+          onAddFood: (_) async {},
+        ),
+      ),
+    );
+
+    final fields = find.byType(TextField);
+    await tester.enterText(fields.at(2), '180');
+    await tester.pump();
+    expect(find.text('180'), findsOneWidget);
+    expect(find.byKey(const Key('clear-field')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('clear-field')));
+    await tester.pump();
+    expect(find.text('180'), findsNothing);
+  });
+
+  testWidgets('a single ingredient stays in sync with what you are eating', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        AddFoodAlertBody(
+          onAddFood: (_) async {},
+        ),
+      ),
+    );
+
+    await tester.enterText(find.byType(TextField).first, 'Joghurt');
+    await tester.pump();
+
+    expect(find.text('Joghurt'), findsNWidgets(2));
+
+    await tester.enterText(find.byType(TextField).first, 'Skyr');
+    await tester.pump();
+
+    expect(find.text('Skyr'), findsNWidgets(2));
+    expect(find.text('Joghurt'), findsNothing);
+
+    await tester.enterText(find.byType(TextField).at(1), 'Quark');
+    await tester.pump();
+    expect(find.text('Quark'), findsNWidgets(2));
+    expect(find.text('Skyr'), findsNothing);
   });
 
   testWidgets('long original note stays folded under a short title', (tester) async {
@@ -337,7 +559,7 @@ void main() {
     expect(find.text('45 kcal'), findsOneWidget);
     expect(find.text('111 kcal'), findsOneWidget);
     expect(find.text('Zutat hinzufügen'), findsNothing);
-    expect(find.text('Name'), findsNothing);
+    expect(find.text('Zutat'), findsNothing);
   });
 
   testWidgets('favorite chip restores the saved menu list', (tester) async {
@@ -405,8 +627,9 @@ void main() {
 
     final fields = find.byType(TextField);
     await tester.enterText(fields.at(0), 'Apfel');
-    await tester.enterText(fields.at(1), '150');
-    await tester.enterText(fields.at(2), '52');
+    await tester.enterText(fields.at(1), 'Apfel');
+    await tester.enterText(fields.at(2), '150');
+    await tester.enterText(fields.at(3), '52');
     await tester.pump();
 
     expect(find.text('Zurücksetzen'), findsOneWidget);
@@ -440,6 +663,51 @@ void main() {
     expect(find.byKey(const Key('reset-meal')), findsOneWidget);
   });
 
+  testWidgets('reset clears the ingredient name field', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        AddFoodAlertBody(
+          onAddFood: (_) async {},
+        ),
+      ),
+    );
+
+    await tester.enterText(find.byType(TextField).at(1), 'Banane');
+    await tester.pump();
+    expect(find.text('Banane'), findsWidgets);
+
+    await tester.ensureVisible(find.byKey(const Key('reset-meal')));
+    await tester.tap(find.byKey(const Key('reset-meal')));
+    await tester.pump();
+
+    expect(find.text('Banane'), findsNothing);
+    expect(find.text('Zutat'), findsWidgets);
+  });
+
+  testWidgets('long-pressing weight opens a scrub scale', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        AddFoodAlertBody(
+          onAddFood: (_) async {},
+        ),
+      ),
+    );
+
+    expect(find.byKey(const Key('number-scrub')), findsNothing);
+    await tester.longPress(find.byIcon(Icons.scale_rounded));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('number-scrub')), findsOneWidget);
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const Key('number-scrub')),
+        matching: find.byIcon(Icons.add_rounded),
+      ),
+    );
+    await tester.pump();
+    expect(find.widgetWithText(TextField, '1'), findsOneWidget);
+  });
+
   testWidgets('total kcal is a quiet alternative to kcal per 100g', (tester) async {
     MealDraft? logged;
     await tester.pumpWidget(
@@ -463,7 +731,7 @@ void main() {
 
     final fields = find.byType(TextField);
     await tester.enterText(fields.at(0), 'Pizza');
-    await tester.enterText(fields.at(2), '650');
+    await tester.enterText(fields.at(3), '650');
     await tester.pump();
 
     expect(find.textContaining('Teller eintragen · 650 kcal'), findsOneWidget);
@@ -492,8 +760,8 @@ void main() {
     await tester.pump();
 
     final fields = find.byType(TextField);
-    await tester.enterText(fields.at(1), '200');
-    await tester.enterText(fields.at(2), '500');
+    await tester.enterText(fields.at(2), '200');
+    await tester.enterText(fields.at(3), '500');
     await tester.pump();
 
     await tester.ensureVisible(find.textContaining('Teller eintragen'));
@@ -519,7 +787,7 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('Shake'), findsOneWidget);
+    expect(find.text('Shake'), findsWidgets);
     expect(find.text('Zurücksetzen'), findsNothing);
   });
 
@@ -561,7 +829,8 @@ void main() {
         'doppelte pizza mit extra käse und salami vom italienischen imbiss um die ecke';
     await tester.enterText(find.byType(TextField).first, longNote);
     await tester.pump();
-    await tester.tap(find.text('Schätzen'));
+    await tester.ensureVisible(find.byKey(const Key('estimate-meal')));
+    await tester.tap(find.byKey(const Key('estimate-meal')));
     await tester.pumpAndSettle();
 
     expect(calories.knownGrams, [null]);
@@ -571,7 +840,8 @@ void main() {
     expect(find.text('250'), findsWidgets);
     expect(find.text('Pizza'), findsWidgets);
 
-    await tester.tap(find.text('Neu schätzen'));
+    await tester.ensureVisible(find.byKey(const Key('estimate-meal')));
+    await tester.tap(find.byKey(const Key('estimate-meal')));
     await tester.pumpAndSettle();
 
     expect(calories.notes.last, longNote);
@@ -580,8 +850,11 @@ void main() {
     expect(calories.extras, [null, null]);
 
     await tester.enterText(find.byType(TextField).first, 'kleiner Salat');
-    await tester.pump();
-    await tester.tap(find.text('Neu schätzen'));
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('estimate-meal')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('estimate-meal')));
     await tester.pumpAndSettle();
 
     expect(calories.knownGrams, [null, null, null]);
@@ -629,10 +902,11 @@ void main() {
 
     final fields = find.byType(TextField);
     await tester.enterText(fields.at(0), 'Haferflocken');
-    await tester.enterText(fields.at(1), '80');
-    await tester.enterText(fields.at(2), '380');
+    await tester.enterText(fields.at(2), '80');
+    await tester.enterText(fields.at(3), '380');
     await tester.pump();
-    await tester.tap(find.text('Schätzen'));
+    await tester.ensureVisible(find.byKey(const Key('estimate-meal')));
+    await tester.tap(find.byKey(const Key('estimate-meal')));
     await tester.pumpAndSettle();
 
     expect(calories.knownGrams, [80]);
@@ -642,7 +916,8 @@ void main() {
 
     await tester.enterText(find.byType(TextField).first, 'Haferflocken mit Milch');
     await tester.pump();
-    await tester.tap(find.text('Neu schätzen'));
+    await tester.ensureVisible(find.byKey(const Key('estimate-meal')));
+    await tester.tap(find.byKey(const Key('estimate-meal')));
     await tester.pumpAndSettle();
 
     expect(calories.knownGrams, [80, 80]);
@@ -679,16 +954,99 @@ void main() {
 
     await tester.enterText(find.byType(TextField).first, 'Pizza');
     await tester.pump();
-    await tester.tap(find.text('Schätzen'));
+    await tester.ensureVisible(find.byKey(const Key('estimate-meal')));
+    await tester.tap(find.byKey(const Key('estimate-meal')));
     await tester.pumpAndSettle();
 
     expect(find.text('Neu schätzen'), findsOneWidget);
     expect(find.text('Schätzen'), findsNothing);
 
+    await tester.ensureVisible(find.byKey(const Key('reset-meal')));
     await tester.tap(find.byKey(const Key('reset-meal')));
     await tester.pump();
 
     expect(find.text('Schätzen'), findsOneWidget);
     expect(find.text('Neu schätzen'), findsNothing);
+  });
+
+  testWidgets('the same title and ingredient is sent as a description', (tester) async {
+    const estimate = MealEstimate(
+      mealName: 'Pizza',
+      items: [
+        GroundedFood(
+          detected: DetectedFood(name: 'Pizza', queryEn: 'pizza', grams: 200),
+          matchedName: 'Pizza',
+          kcalPer100g: 250,
+          source: NutritionSource.usda,
+        ),
+      ],
+    );
+    final calories = _ScriptedCalories([estimate]);
+    await tester.pumpWidget(
+      _wrap(
+        AddFoodAlertBody(
+          onAddFood: (_) async {},
+          estimateUnlocked: true,
+          photoCalories: calories,
+        ),
+      ),
+    );
+
+    expect(find.textContaining('Ein Foto zeigt oft nicht alle Zutaten'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).first, 'Pizza');
+    await tester.pump();
+    await tester.ensureVisible(find.byKey(const Key('estimate-meal')));
+    await tester.tap(find.byKey(const Key('estimate-meal')));
+    await tester.pumpAndSettle();
+
+    expect(calories.notes, ['Pizza']);
+  });
+
+  testWidgets('distinct ingredients are sent as a list, not a dish name', (tester) async {
+    const estimate = MealEstimate(
+      mealName: 'Shake',
+      items: [
+        GroundedFood(
+          detected: DetectedFood(name: 'Mandelmilch', queryEn: 'almond milk', grams: 300),
+          matchedName: 'Almond milk',
+          kcalPer100g: 15,
+          source: NutritionSource.usda,
+        ),
+        GroundedFood(
+          detected: DetectedFood(name: 'Protein', queryEn: 'protein powder', grams: 30),
+          matchedName: 'Protein powder',
+          kcalPer100g: 370,
+          source: NutritionSource.usda,
+        ),
+      ],
+    );
+    final calories = _ScriptedCalories([estimate]);
+    await tester.pumpWidget(
+      _wrap(
+        AddFoodAlertBody(
+          onAddFood: (_) async {},
+          estimateUnlocked: true,
+          photoCalories: calories,
+        ),
+      ),
+    );
+
+    await tester.enterText(find.byType(TextField).first, 'Shake');
+    await tester.pump();
+    await tester.ensureVisible(find.text('Zutat hinzufügen'));
+    await tester.tap(find.text('Zutat hinzufügen'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).at(4), 'Mandelmilch');
+    await tester.pump();
+    await tester.ensureVisible(find.byKey(const Key('estimate-meal')));
+    await tester.tap(find.byKey(const Key('estimate-meal')));
+    await tester.pumpAndSettle();
+
+    expect(calories.notes, hasLength(1));
+    expect(calories.notes.single, contains('Ingredients:'));
+    expect(calories.notes.single, contains('Shake'));
+    expect(calories.notes.single, contains('Mandelmilch'));
+    expect(calories.notes.single, isNot(equals('Shake')));
   });
 }

@@ -24,6 +24,9 @@ Rules:
   Examples: "chicken breast grilled", "rice white cooked", "pasta cooked enriched", "olive oil".
 - If a brand or packaged product is visible, put the brand in brandHint.
 - Split mixed meals into visible components (protein, starch, sauce, sides).
+- The photo is often incomplete. It may miss drinks, sauces, or anything off-camera.
+- If the note lists ingredients, those are what was eaten. Keep every listed item even if it is not visible. Use the photo only for portions and extras that are actually in frame.
+- If the note is only a short name or the same words as one ingredient line, it is a description, not a recipe. Identify the photo. Do not treat that name as the only food.
 - If the note describes a mixed drink, split powder from milk/water. Do not apply powder kcal/100g to the whole glass.
 - Ignore plates, cutlery, and non-food.
 - mealName is a short title, 3-6 words, same language as the user.
@@ -139,6 +142,7 @@ Rules:
     int? knownTotalKcal,
     String? note,
     String? extraContext,
+    bool noteIsIngredientList = false,
   }) async {
     return _detect(
       apiKey: apiKey,
@@ -148,7 +152,7 @@ Rules:
       parts: [
         {
           'text':
-              '$_prompt${_knownGramsLine(knownGrams)}${_knownEnergyLine(kcalPer100g: knownKcalPer100g, totalKcal: knownTotalKcal)}${_userNoteLine(note)}${_followUpLine(extraContext)}',
+              '$_prompt${_knownGramsLine(knownGrams)}${_knownEnergyLine(kcalPer100g: knownKcalPer100g, totalKcal: knownTotalKcal)}${_userNoteLine(note, noteIsIngredientList: noteIsIngredientList)}${_followUpLine(extraContext)}',
         },
         {
           'inline_data': {
@@ -232,12 +236,22 @@ Rules:
     return '';
   }
 
-  String _userNoteLine(String? note) {
+  String _userNoteLine(String? note, {bool noteIsIngredientList = false}) {
     final cleaned = note?.trim() ?? '';
     if (cleaned.isEmpty) return '';
-    return '\nThe user already named the meal. Trust that over a visual guess '
-        'when they conflict. Use the photo for portions, sides, and extras '
-        'they did not mention.\nUser note:\n$cleaned';
+    if (noteIsIngredientList) {
+      return '\nThe user listed the ingredients they ate. That list is ground '
+          'truth for what was eaten. The photo is often incomplete and may not '
+          'show every listed item — that is expected. Keep every listed '
+          'ingredient even if it is missing from the photo. Use the photo only '
+          'for portion sizes and extras that are actually visible.\n'
+          'Listed ingredients:\n$cleaned';
+    }
+    return '\nThe user wrote a possible description of the meal, not an '
+        'ingredient list. Do not treat that text as the only food. Identify '
+        'what is actually in the photo. The name is only a hint and may be '
+        'incomplete or generic. The photo may not show everything they ate.\n'
+        'Description:\n$cleaned';
   }
 
   String _followUpLine(String? extraContext) {

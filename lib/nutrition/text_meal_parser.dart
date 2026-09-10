@@ -35,20 +35,20 @@ ParsedMealNote parseMealNote(String raw) {
   return ParsedMealNote(name: text, grams: grams);
 }
 
-DetectedFood detectedFromNote(String raw, {int? knownGrams}) {
+DetectedFood detectedFromNote(String raw, {int? knownGrams, int fallbackGrams = 250}) {
   final parsed = parseMealNote(raw);
   final name = parsed.name.isEmpty ? raw.trim() : parsed.name;
   final food = DetectedFood(
     name: name,
     queryEn: name,
-    grams: knownGrams ?? parsed.grams ?? _scoopGrams(raw) ?? 250,
+    grams: knownGrams ?? parsed.grams ?? _scoopGrams(raw) ?? fallbackGrams,
     altQueries: _genericFallbacks(name),
   );
   return food.copyWith(sense: inferFoodSense(food));
 }
 
 /// Split a typed note into menu rows when Gemini is not used.
-List<DetectedFood> splitMealNote(String raw, {int? knownGrams}) {
+List<DetectedFood> splitMealNote(String raw, {int? knownGrams, int fallbackGrams = 250}) {
   var text = raw.trim();
   if (text.isEmpty) return const [];
   text = text.replaceAll(RegExp(r'\bgemacht\s+mit\b', caseSensitive: false), 'mit');
@@ -63,10 +63,10 @@ List<DetectedFood> splitMealNote(String raw, {int? knownGrams}) {
       .where((part) => part.isNotEmpty)
       .toList();
   if (parts.length <= 1) {
-    return [detectedFromNote(text, knownGrams: knownGrams)];
+    return [detectedFromNote(text, knownGrams: knownGrams, fallbackGrams: fallbackGrams)];
   }
   return [
-    for (final part in parts) detectedFromNote(part),
+    for (final part in parts) detectedFromNote(part, fallbackGrams: fallbackGrams),
   ];
 }
 
@@ -77,6 +77,42 @@ int? _scoopGrams(String raw) {
   }
   if (RegExp(r'\b(scoops?|messl[oö]ffel)\b', caseSensitive: false).hasMatch(raw)) return 30;
   return null;
+}
+
+/// One matching name (or none) is a meal description, not a recipe.
+bool mealNoteIsOnlyADescription({
+  required String title,
+  required Iterable<String> ingredientNames,
+}) {
+  final named = [
+    for (final name in ingredientNames)
+      if (name.trim().isNotEmpty) name.trim(),
+  ];
+  if (named.isEmpty) return true;
+  if (named.length > 1) return false;
+  final t = title.trim().toLowerCase();
+  final n = named.single.toLowerCase();
+  return t.isEmpty || t == n;
+}
+
+String formatMealEstimateNote({
+  required String title,
+  required List<DetectedFood> ingredients,
+}) {
+  if (mealNoteIsOnlyADescription(
+    title: title,
+    ingredientNames: ingredients.map((item) => item.name),
+  )) {
+    return title.trim();
+  }
+  final lines = [
+    for (final item in ingredients)
+      if (item.name.trim().isNotEmpty)
+        item.grams > 0 ? '- ${item.name.trim()} ${item.grams}g' : '- ${item.name.trim()}',
+  ];
+  final heading = title.trim();
+  if (heading.isEmpty) return 'Ingredients:\n${lines.join('\n')}';
+  return 'Meal: $heading\nIngredients:\n${lines.join('\n')}';
 }
 
 List<String> _genericFallbacks(String name) {

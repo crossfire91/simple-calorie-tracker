@@ -123,6 +123,8 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
       _liveEstimate.value = _estimate;
       _clarificationUsed = true;
       _menuFromEstimate = true;
+    } else if (!widget.addServingMode) {
+      _openManualMenu(notify: false);
     }
     if (widget.startWithCamera) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -151,10 +153,9 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
       if (file == null) return;
       imageOfFood = await file.readAsBytes();
       _imageChanged = true;
-      if (!widget.editMode) {
+      if (!widget.editMode && !_manualMenu) {
         _estimate = null;
         _liveEstimate.value = null;
-        _manualMenu = false;
         _error = null;
         _status = null;
         _clarificationUsed = false;
@@ -181,7 +182,9 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
     }
     final bytes = imageOfFood;
     final hasPhoto = bytes != null && bytes.isNotEmpty;
-    final note = _lookupNote;
+    final descriptionOnly = !_manualMenu || _noteIsOnlyADescription;
+    final note = descriptionOnly ? _lookupNote : _estimateNote;
+    final wasManual = _manualMenu;
     if (_listening) {
       await _toggleVoice();
       return;
@@ -210,7 +213,7 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
       _error = null;
       _status = hasPhoto ? S.of(context).readingPlate : S.of(context).lookingThatUp;
       if (fresh) {
-        if (_menuFromEstimate) {
+        if (_menuFromEstimate && !_manualMenu) {
           _estimate = null;
           _liveEstimate.value = null;
           _manualMenu = false;
@@ -226,6 +229,7 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
       }
     });
     try {
+      final extra = fresh ? null : _clarificationNote;
       final estimate = hasPhoto
           ? await _photoCalories.estimateFromPhoto(
               bytes,
@@ -233,23 +237,26 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
               knownKcalPer100g: knownKcalPer100g,
               knownTotalKcal: knownTotalKcal,
               note: note,
-              extraContext: fresh ? null : _clarificationNote,
+              extraContext: extra,
+              noteIsIngredientList: !descriptionOnly,
             )
           : await _photoCalories.estimateFromNote(
               note,
               knownGrams: knownGrams,
               knownKcalPer100g: knownKcalPer100g,
               knownTotalKcal: knownTotalKcal,
-              extraContext: fresh ? null : _clarificationNote,
+              extraContext: extra,
             );
       if (!mounted) return;
-      _manualMenu = false;
+      _manualMenu = wasManual && !descriptionOnly;
       _applyEstimate(estimate);
     } catch (error) {
       if (!mounted) return;
-      _estimate = null;
-      _liveEstimate.value = null;
-      _manualMenu = false;
+      _manualMenu = wasManual;
+      if (!wasManual) {
+        _estimate = null;
+        _liveEstimate.value = null;
+      }
       _error = S.of(context).lookupError(error.toString());
       _status = null;
     } finally {
@@ -291,7 +298,6 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
     final estimate = MealEstimate.decodeForGrams(meal.breakdown, meal.weightInGrams);
     _estimate = estimate?.copyWith(clearClarification: true);
     _liveEstimate.value = _estimate;
-    _manualMenu = false;
     _clarificationUsed = estimate != null;
     if (estimate != null) _estimateRevision++;
     final note = meal.description.trim();
@@ -299,6 +305,11 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
     _userNote = note.isEmpty ? meal.name : note;
     _appliedTitle = noteController.text.trim();
     _menuFromEstimate = estimate != null;
+    if (estimate == null && !widget.addServingMode) {
+      _openManualMenu(notify: false);
+    } else {
+      _manualMenu = false;
+    }
     widget.onPickQuick?.call(meal);
     setState(() {});
     final photo = await widget.loadPhotoForQuick?.call(meal);
@@ -313,6 +324,24 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
       typed: noteController.text,
       originalNote: _originalNote,
       appliedTitle: _appliedTitle,
+    );
+  }
+
+  List<DetectedFood> get _listedIngredients {
+    return _estimate?.menuItems.where((item) => item.name.trim().isNotEmpty).toList() ??
+        const [];
+  }
+
+  bool get _noteIsOnlyADescription => mealNoteIsOnlyADescription(
+        title: noteController.text,
+        ingredientNames: _listedIngredients.map((item) => item.name),
+      );
+
+  String get _estimateNote {
+    if (_noteIsOnlyADescription) return _lookupNote;
+    return formatMealEstimateNote(
+      title: noteController.text,
+      ingredients: _listedIngredients,
     );
   }
 
@@ -424,25 +453,21 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
     _setWeightText('', fromEstimate: false);
     _setKcalPer100g('', fromEstimate: false);
     _setTotalKcal('', fromEstimate: false);
-    setState(() {
-      imageOfFood = null;
-      _error = null;
-      _status = null;
-      _estimate = null;
-      _liveEstimate.value = null;
-      _pinFavorite = false;
-      _clarificationUsed = false;
-      _clarificationNote = null;
-      _estimateRevision++;
-      _imageChanged = false;
-      _manualMenu = false;
-      _menuFromEstimate = false;
-      _userNote = null;
-      _appliedTitle = null;
-      _totalKcalMode = false;
-      _originalNote = null;
-      _showOriginal = false;
-    });
+    imageOfFood = null;
+    _error = null;
+    _status = null;
+    _pinFavorite = false;
+    _clarificationUsed = false;
+    _clarificationNote = null;
+    _imageChanged = false;
+    _menuFromEstimate = false;
+    _userNote = null;
+    _appliedTitle = null;
+    _totalKcalMode = false;
+    _originalNote = null;
+    _showOriginal = false;
+    _openManualMenu(notify: false, blank: true);
+    if (mounted) setState(() {});
   }
 
   @override
@@ -464,8 +489,30 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
   void _onNoteChanged() {
     if (!_writingNote) {
       _userNote = noteController.text.trim();
+      _syncSingleIngredientFromNote();
     }
     _tickFields();
+  }
+
+  bool get _singleManualIngredient {
+    final estimate = _estimate;
+    return _manualMenu && estimate != null && estimate.menuItems.length == 1;
+  }
+
+  void _syncSingleIngredientFromNote() {
+    if (!_singleManualIngredient) return;
+    final estimate = _estimate!;
+    final title = noteController.text.trim();
+    final current = estimate.menuItems.first.name;
+    final linked = current.isEmpty || current == estimate.mealName;
+    if (!linked) return;
+    var next = current == title
+        ? estimate
+        : estimate.renameMenuLine(0, title, unmatched: estimate.items.isEmpty);
+    if (next.mealName != title) next = next.copyWith(mealName: title);
+    if (identical(next, estimate)) return;
+    _estimate = next;
+    _liveEstimate.value = next;
   }
 
   void _setNoteText(String text, {required bool fromUser}) {
@@ -521,11 +568,30 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
     if (!widget.addServingMode &&
         estimate.items.isNotEmpty &&
         (fromMenuEdit || _kcalFromEstimate || _typedKcalPer100g == null)) {
-      _setKcalPer100g(estimate.kcalPer100g.toString(), fromEstimate: _menuFromEstimate);
+      final density = estimate.kcalPer100g;
+      if (density > 0 || _menuFromEstimate) {
+        _setKcalPer100g(density.toString(), fromEstimate: _menuFromEstimate);
+      }
     }
     if (fromMenuEdit || _kcalFromEstimate || _typedTotalKcal == null) {
-      _syncTotalFromDensity(fromEstimate: _menuFromEstimate);
+      final implied = _impliedTotalKcal(estimate);
+      if (implied != null) {
+        _setTotalKcal(implied.toString(), fromEstimate: _menuFromEstimate);
+      } else {
+        _syncTotalFromDensity(fromEstimate: _menuFromEstimate);
+      }
     }
+  }
+
+  int? _impliedTotalKcal(MealEstimate estimate) {
+    if (estimate.totalKcal > 0) return estimate.totalKcal;
+    if (_totalKcalMode &&
+        estimate.items.length == 1 &&
+        estimate.items.single.grams <= 0 &&
+        estimate.items.single.kcalPer100g >= 0) {
+      return estimate.items.single.kcalPer100g;
+    }
+    return null;
   }
 
   void _syncTotalFromDensity({required bool fromEstimate}) {
@@ -571,7 +637,6 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
 
   void _toggleTotalKcalMode() {
     final kcalFromEstimate = _kcalFromEstimate;
-    final gramsFromEstimate = _gramsFromEstimate;
     setState(() {
       if (_totalKcalMode) {
         final total = _typedTotalKcal;
@@ -579,7 +644,6 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
         if (total != null && grams != null) {
           _setKcalPer100g(((total * 100) / grams).round().toString(), fromEstimate: kcalFromEstimate);
         } else if (total != null) {
-          _setWeightText('100', fromEstimate: gramsFromEstimate);
           _setKcalPer100g(total.toString(), fromEstimate: kcalFromEstimate);
         }
         _totalKcalMode = false;
@@ -590,6 +654,7 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
         }
         _totalKcalMode = true;
       }
+      if (_manualMenu) _estimateRevision++;
     });
   }
 
@@ -662,35 +727,85 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
     }
   }
 
-  void _openManualMenu() {
+  void _openManualMenu({bool notify = true, bool blank = false}) {
+    if (blank) {
+      _manualMenu = true;
+      _menuFromEstimate = false;
+      _error = null;
+      _status = null;
+      _totalKcalMode = false;
+      _estimateRevision++;
+      const estimate = MealEstimate(
+        mealName: '',
+        unmatchedItems: [
+          DetectedFood(name: '', queryEn: '', grams: 0),
+        ],
+      );
+      _estimate = estimate;
+      _liveEstimate.value = estimate;
+      if (notify && mounted) setState(() {});
+      return;
+    }
     final note = _lookupNote;
-    final seeded = splitMealNote(note);
+    final typedName = noteController.text.trim();
+    var grams = _knownGrams;
+    int? per100 = _totalKcalMode ? null : _typedKcalPer100g;
+    if (_totalKcalMode) {
+      final total = _typedTotalKcal;
+      if (total != null && total > 0) {
+        per100 = grams == null || grams <= 0 ? total : ((total * 100) / grams).round();
+      }
+    }
+    final seeded = splitMealNote(note, knownGrams: grams, fallbackGrams: 0);
     final items = seeded.isEmpty
         ? [
             DetectedFood(
-              name: note.isEmpty ? 'Item' : note,
-              queryEn: note,
-              grams: _knownGrams ?? 100,
+              name: typedName,
+              queryEn: typedName,
+              grams: grams ?? 0,
             ),
           ]
         : seeded;
+    var estimate = MealEstimate(
+      mealName: typedName.isNotEmpty
+          ? typedName
+          : (items.first.name.isNotEmpty ? items.first.name : typedName),
+      unmatchedItems: items,
+    );
+    if (per100 != null && per100 > 0 && estimate.unmatchedItems.length == 1) {
+      estimate = estimate.replaceUnmatched(
+        0,
+        grams: grams ?? estimate.unmatchedItems.first.grams,
+        kcalPer100g: per100,
+      );
+    }
     _manualMenu = true;
     _menuFromEstimate = false;
-    _applyEstimate(
-      MealEstimate(
-        mealName: noteController.text.trim().isNotEmpty ? noteController.text.trim() : items.first.name,
-        unmatchedItems: items,
-      ),
-      fromAi: false,
-    );
-    setState(() {});
+    _error = null;
+    _status = null;
+    _totalKcalMode = false;
+    _estimateRevision++;
+    _estimate = estimate;
+    _liveEstimate.value = estimate;
+    _syncTotalsFromEstimate(estimate, fillGramsIfEmpty: false, fromMenuEdit: true);
+    if (notify && mounted) setState(() {});
+  }
+
+  void _addIngredient() {
+    if (_totalKcalMode) _toggleTotalKcalMode();
+    final live = _liveEstimate.value ?? _estimate;
+    if (live == null) return;
+    _onEstimateEdited(live.addUnmatched());
   }
 
   Future<void> _lookupMenu() async {
     final estimate = _estimate;
     if (estimate == null || _analyzing) return;
-    final items = estimate.menuItems;
-    if (items.isEmpty) return;
+    final items = estimate.menuItems.where((item) => item.name.trim().isNotEmpty).toList();
+    if (items.isEmpty) {
+      setState(() => _error = S.of(context).nothingToLookUp);
+      return;
+    }
     setState(() {
       _analyzing = true;
       _error = null;
@@ -714,15 +829,29 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
 
   void _onEstimateEdited(MealEstimate next) {
     _menuFromEstimate = false;
-    final structureChanged = next.items.length != _estimate!.items.length ||
-        next.unmatchedItems.length != _estimate!.unmatchedItems.length;
+    if (_manualMenu && next.menuItems.length == 1) {
+      final name = next.menuItems.first.name.trim();
+      if (name.isNotEmpty && noteController.text.trim() != name) {
+        next = next.copyWith(mealName: name);
+        _setNoteText(name, fromUser: true);
+      } else {
+        final title = noteController.text.trim();
+        if (title.isNotEmpty && next.mealName != title) {
+          next = next.copyWith(mealName: title);
+        }
+      }
+    }
+    final structureChanged = next.menuItems.length != _estimate!.menuItems.length;
     if (structureChanged) _estimateRevision++;
     _estimate = next;
     _syncTotalsFromEstimate(next, fillGramsIfEmpty: false, fromMenuEdit: true);
     var chromeChanged = false;
-    if (next.items.isNotEmpty) {
-      final nextError =
-          next.unmatched.isEmpty ? null : S.of(context).noMatchEnergyOnly(next.unmatched.join(', '));
+    if (!_manualMenu && next.items.isNotEmpty) {
+      final missed = [
+        for (final item in next.unmatchedItems)
+          if (item.name.trim().isNotEmpty) item.name.trim(),
+      ];
+      final nextError = missed.isEmpty ? null : S.of(context).noMatchEnergyOnly(missed.join(', '));
       chromeChanged = nextError != _error || next.mealName != _status;
       _error = nextError;
       _status = next.mealName;
@@ -834,9 +963,11 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
             controller: noteController,
             label: _originalNote == null ? s.whatIsIt : s.mealTitle,
             hint: _originalNote == null ? s.whatIsItHint : s.mealTitleHint,
-            icon: Icons.edit_note_rounded,
+            icon: Icons.restaurant_menu_rounded,
             keyboardType: TextInputType.text,
             textInputAction: TextInputAction.next,
+            prominent: true,
+            autofocus: !widget.startWithCamera && !widget.addServingMode,
             suffixIcon: IconButton(
               tooltip: _listening ? s.listeningShort : s.whatIsIt,
               onPressed: _analyzing ? null : _toggleVoice,
@@ -857,58 +988,65 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
           ],
           const SizedBox(height: 12),
         ],
-        if (!widget.addServingMode && _estimate == null) ...[
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              onPressed: _analyzing ? null : _openManualMenu,
-              icon: const Icon(Icons.playlist_add_rounded, size: 18),
-              label: Text(s.buildMenu),
-            ),
-          ),
-        ],
-        Row(
-          children: [
-            Expanded(
-              child: AppTextField(
-                controller: foodWeightInGrams,
-                label: s.weight,
-                suffix: s.gramsHint,
-                icon: Icons.scale_rounded,
-              ),
-            ),
-            if (!widget.addServingMode) ...[
-              const SizedBox(width: 10),
-              Expanded(
-                child: AppTextField(
-                  controller: _totalKcalMode ? _totalKcalController : kcalPer100gController,
-                  label: _totalKcalMode ? s.totalEnergy : s.energy,
-                  suffix: _totalKcalMode ? s.kcalHint : s.kcalPer100g,
-                  icon: Icons.local_fire_department_rounded,
+        AnimatedSize(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.topCenter,
+          child: _manualMenu
+              ? const SizedBox(width: double.infinity)
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: AppTextField(
+                            controller: foodWeightInGrams,
+                            label: s.weight,
+                            suffix: s.gramsHint,
+                            icon: Icons.scale_rounded,
+                            scrubMin: 0,
+                            scrubMax: 2000,
+                          ),
+                        ),
+                        if (!widget.addServingMode) ...[
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: AppTextField(
+                              controller: _totalKcalMode ? _totalKcalController : kcalPer100gController,
+                              label: _totalKcalMode ? s.totalEnergy : s.energy,
+                              suffix: _totalKcalMode ? s.kcalHint : s.kcalPer100g,
+                              icon: Icons.local_fire_department_rounded,
+                              scrubMin: 0,
+                              scrubMax: _totalKcalMode ? 3000 : 950,
+                              scrubStep: _totalKcalMode ? 5 : 1,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    if (!widget.addServingMode)
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          key: const Key('total-kcal-mode'),
+                          onPressed: _analyzing ? null : _toggleTotalKcalMode,
+                          style: TextButton.styleFrom(
+                            foregroundColor: AppColors.textFaint,
+                            visualDensity: VisualDensity.compact,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+                            minimumSize: Size.zero,
+                          ),
+                          child: Text(
+                            _totalKcalMode ? s.orKcalPer100g : s.orTotalKcal,
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
-              ),
-            ],
-          ],
         ),
-        if (!widget.addServingMode)
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton(
-              key: const Key('total-kcal-mode'),
-              onPressed: _analyzing ? null : _toggleTotalKcalMode,
-              style: TextButton.styleFrom(
-                foregroundColor: AppColors.textFaint,
-                visualDensity: VisualDensity.compact,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
-                minimumSize: Size.zero,
-              ),
-              child: Text(
-                _totalKcalMode ? s.orKcalPer100g : s.orTotalKcal,
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-              ),
-            ),
-          ),
         if (_status != null) ...[
           const SizedBox(height: 10),
           Align(
@@ -936,13 +1074,16 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
             builder: (context, estimate, _) {
               final live = estimate ?? _estimate!;
               return _EstimateBreakdown(
+                key: ValueKey(_estimateRevision),
                 estimate: live,
                 revision: _estimateRevision,
                 enabled: !_analyzing,
                 manual: _manualMenu,
+                totalKcalMode: _totalKcalMode,
                 onChanged: _onEstimateEdited,
                 onLookup: _lookupMenu,
-                onAdd: () => _onEstimateEdited(live.addUnmatched()),
+                onAdd: _addIngredient,
+                onToggleTotalKcal: _singleManualIngredient ? _toggleTotalKcalMode : null,
               );
             },
           ),
@@ -1019,13 +1160,13 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
                               : () => setState(() {
                                     imageOfFood = null;
                                     _imageChanged = true;
-                                    if (!widget.editMode) {
+                                    if (!widget.editMode && !_manualMenu) {
                                       _estimate = null;
                                       _liveEstimate.value = null;
-                                      _manualMenu = false;
                                       _status = null;
                                       _clarificationUsed = false;
                                       _clarificationNote = null;
+                                      _openManualMenu(notify: false);
                                     }
                                   }),
                           child: Container(
@@ -1062,6 +1203,14 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
           ),
           ),
         ),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            s.photoMayMissIngredients,
+            style: const TextStyle(color: AppColors.textFaint, fontSize: 12, height: 1.35),
+          ),
+        ),
         const SizedBox(height: 10),
         Row(
           children: [
@@ -1075,13 +1224,14 @@ class _AddFoodAlertBodyState extends State<AddFoodAlertBody> {
               const SizedBox(width: 10),
               Expanded(
                 child: AppGhostButton(
+                  key: const Key('estimate-meal'),
                   accent: true,
-                  icon: _estimate == null ? Icons.auto_awesome_rounded : Icons.refresh_rounded,
+                  icon: _estimate == null || _manualMenu ? Icons.auto_awesome_rounded : Icons.refresh_rounded,
                   label: !_estimateUnlocked
                       ? s.unlockEstimate
                       : _analyzing
                           ? s.working
-                          : (_estimate == null ? s.estimatePlate : s.reEstimate),
+                          : (_estimate == null || _manualMenu ? s.estimatePlate : s.reEstimate),
                   onPressed: _analyzing
                       ? null
                       : (_estimateUnlocked ? () => _estimateMeal() : _unlockEstimate),
@@ -1337,18 +1487,23 @@ class _EstimateBreakdown extends StatefulWidget {
   final int revision;
   final bool enabled;
   final bool manual;
+  final bool totalKcalMode;
   final ValueChanged<MealEstimate> onChanged;
   final VoidCallback? onLookup;
   final VoidCallback? onAdd;
+  final VoidCallback? onToggleTotalKcal;
 
   const _EstimateBreakdown({
+    super.key,
     required this.estimate,
     required this.revision,
     required this.enabled,
     required this.manual,
+    this.totalKcalMode = false,
     required this.onChanged,
     this.onLookup,
     this.onAdd,
+    this.onToggleTotalKcal,
   });
 
   @override
@@ -1371,8 +1526,23 @@ class _EstimateBreakdownState extends State<_EstimateBreakdown> {
   @override
   void didUpdateWidget(covariant _EstimateBreakdown oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.revision != widget.revision) {
+    if (oldWidget.revision != widget.revision || oldWidget.totalKcalMode != widget.totalKcalMode) {
       _rebuildControllers();
+    } else {
+      _syncNameControllers();
+    }
+  }
+
+  void _syncNameControllers() {
+    final items = estimate.menuItems;
+    if (_names.length != items.length) return;
+    for (var i = 0; i < items.length; i++) {
+      final name = items[i].name;
+      if (_names[i].text == name) continue;
+      _names[i].value = TextEditingValue(
+        text: name,
+        selection: TextSelection.collapsed(offset: name.length),
+      );
     }
   }
 
@@ -1395,41 +1565,63 @@ class _EstimateBreakdownState extends State<_EstimateBreakdown> {
     _disposeControllers();
     for (final item in estimate.items) {
       _names.add(TextEditingController(text: item.detected.name));
-      _grams.add(TextEditingController(text: item.grams.toString()));
-      _kcals.add(TextEditingController(text: item.kcalPer100g.toString()));
+      _grams.add(TextEditingController(text: item.grams > 0 ? item.grams.toString() : ''));
+      final energy = widget.totalKcalMode ? item.itemKcal : item.kcalPer100g;
+      _kcals.add(
+        TextEditingController(
+          text: widget.manual && energy == 0 ? '' : energy.toString(),
+        ),
+      );
     }
     for (final item in estimate.unmatchedItems) {
       _names.add(TextEditingController(text: item.name));
-      _grams.add(TextEditingController(text: item.grams.toString()));
-      _kcals.add(TextEditingController(text: '0'));
+      _grams.add(TextEditingController(text: item.grams > 0 ? item.grams.toString() : ''));
+      _kcals.add(TextEditingController(text: ''));
     }
+  }
+
+  int? _per100FromField(int index) {
+    final typed = int.tryParse(_kcals[index].text.trim());
+    if (typed == null || typed < 0) return null;
+    if (!widget.totalKcalMode) return typed;
+    final grams = int.tryParse(_grams[index].text.trim()) ?? 100;
+    if (grams <= 0) return typed;
+    return ((typed * 100) / grams).round();
   }
 
   void _editName(int index, {required bool unmatched}) {
     final name = _names[index].text.trim();
-    if (name.isEmpty) return;
     final local = unmatched ? index - estimate.items.length : index;
     widget.onChanged(estimate.renameMenuLine(local, name, unmatched: unmatched));
   }
 
   void _editGrams(int index, {required bool unmatched}) {
-    final grams = int.tryParse(_grams[index].text.trim());
-    if (grams == null || grams <= 0) return;
+    final raw = _grams[index].text.trim();
+    final grams = raw.isEmpty ? 0 : int.tryParse(raw);
+    if (grams == null || grams < 0) return;
     final local = unmatched ? index - estimate.items.length : index;
+    final per100 = widget.totalKcalMode ? _per100FromField(index) : null;
     widget.onChanged(
       unmatched
-          ? estimate.replaceUnmatched(local, grams: grams)
-          : estimate.replaceGrounded(local, grams: grams),
+          ? estimate.replaceUnmatched(local, grams: grams, kcalPer100g: per100)
+          : estimate.replaceGrounded(local, grams: grams, kcalPer100g: per100),
     );
   }
 
   void _editKcalPer100g(int index, {required bool unmatched}) {
-    final per100 = int.tryParse(_kcals[index].text.trim());
-    if (per100 == null || per100 < 0) return;
+    final raw = _kcals[index].text.trim();
+    if (raw.isEmpty && unmatched) return;
+    final per100 = raw.isEmpty ? 0 : _per100FromField(index);
+    if (per100 == null) return;
     final local = unmatched ? index - estimate.items.length : index;
+    final grams = int.tryParse(_grams[index].text.trim());
     widget.onChanged(
       unmatched
-          ? estimate.replaceUnmatched(local, kcalPer100g: per100)
+          ? estimate.replaceUnmatched(
+              local,
+              grams: grams == null || grams < 0 ? 0 : grams,
+              kcalPer100g: per100,
+            )
           : estimate.replaceGrounded(local, kcalPer100g: per100),
     );
   }
@@ -1437,6 +1629,136 @@ class _EstimateBreakdownState extends State<_EstimateBreakdown> {
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
+    final lines = Column(
+      children: [
+        if (widget.manual && estimate.menuItems.length == 1) ...[
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              s.menuHint,
+              style: const TextStyle(color: AppColors.textFaint, fontSize: 11, height: 1.3),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+        for (var i = 0; i < estimate.items.length; i++)
+          widget.manual
+              ? _manualLine(
+                  name: _names[i],
+                  itemKcal: estimate.items[i].itemKcal,
+                  missing: false,
+                  grams: _grams[i],
+                  kcal: _kcals[i],
+                  enabled: widget.enabled,
+                  onName: () => _editName(i, unmatched: false),
+                  onGrams: () => _editGrams(i, unmatched: false),
+                  onKcal: () => _editKcalPer100g(i, unmatched: false),
+                  onRemove: () => widget.onChanged(estimate.removeMenuLine(i, unmatched: false)),
+                )
+              : _estimateLine(
+                  name: estimate.items[i].detected.name,
+                  itemKcal: estimate.items[i].itemKcal,
+                  missing: false,
+                  grams: _grams[i],
+                  kcal: _kcals[i],
+                  enabled: widget.enabled,
+                  onGrams: () => _editGrams(i, unmatched: false),
+                  onKcal: () => _editKcalPer100g(i, unmatched: false),
+                ),
+        for (var i = 0; i < estimate.unmatchedItems.length; i++)
+          widget.manual
+              ? _manualLine(
+                  name: _names[estimate.items.length + i],
+                  itemKcal: 0,
+                  missing: true,
+                  grams: _grams[estimate.items.length + i],
+                  kcal: _kcals[estimate.items.length + i],
+                  enabled: widget.enabled,
+                  onName: () => _editName(estimate.items.length + i, unmatched: true),
+                  onGrams: () => _editGrams(estimate.items.length + i, unmatched: true),
+                  onKcal: () => _editKcalPer100g(estimate.items.length + i, unmatched: true),
+                  onRemove: () => widget.onChanged(estimate.removeMenuLine(i, unmatched: true)),
+                )
+                : _estimateLine(
+                  name: estimate.unmatchedItems[i].name,
+                  itemKcal: 0,
+                  missing: true,
+                  grams: _grams[estimate.items.length + i],
+                  kcal: _kcals[estimate.items.length + i],
+                  enabled: widget.enabled,
+                  onGrams: () => _editGrams(estimate.items.length + i, unmatched: true),
+                  onKcal: () => _editKcalPer100g(estimate.items.length + i, unmatched: true),
+                ),
+        if (widget.manual && widget.onToggleTotalKcal != null)
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              key: const Key('total-kcal-mode'),
+              onPressed: widget.enabled ? widget.onToggleTotalKcal : null,
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.textFaint,
+                visualDensity: VisualDensity.compact,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+                minimumSize: Size.zero,
+              ),
+              child: Text(
+                widget.totalKcalMode ? s.orKcalPer100g : s.orTotalKcal,
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
+        if (!widget.manual) const SizedBox(height: 8),
+        if (widget.manual) ...[
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              if (widget.onAdd != null)
+                Expanded(
+                  child: _AddIngredientRow(
+                    label: s.addIngredient,
+                    enabled: widget.enabled,
+                    onTap: widget.onAdd!,
+                  ),
+                ),
+              if (widget.onAdd != null && widget.onLookup != null) const SizedBox(width: 8),
+              if (widget.onLookup != null)
+                TextButton.icon(
+                  onPressed: widget.enabled ? widget.onLookup : null,
+                  icon: const Icon(Icons.search_rounded, size: 18),
+                  label: Text(s.lookUpMenu),
+                ),
+            ],
+          ),
+        ],
+        if (!widget.manual)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              estimate.items.isEmpty ? s.noMatchWriteSimpler : s.editIfOff(estimate.totalKcal),
+              style: const TextStyle(color: AppColors.textFaint, fontSize: 11, height: 1.3),
+            ),
+          ),
+      ],
+    );
+    if (widget.manual) {
+      return IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              width: 3,
+              margin: const EdgeInsets.only(right: 12, bottom: 4),
+              decoration: BoxDecoration(
+                color: AppColors.accentSoft.withValues(alpha: 0.28),
+                borderRadius: BorderRadius.circular(99),
+              ),
+            ),
+            Expanded(child: lines),
+          ],
+        ),
+      );
+    }
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
@@ -1445,97 +1767,7 @@ class _EstimateBreakdownState extends State<_EstimateBreakdown> {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.stroke),
       ),
-      child: Column(
-        children: [
-          if (widget.manual) ...[
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                s.menuHint,
-                style: const TextStyle(color: AppColors.textFaint, fontSize: 11, height: 1.3),
-              ),
-            ),
-            const SizedBox(height: 6),
-          ],
-          for (var i = 0; i < estimate.items.length; i++)
-            widget.manual
-                ? _manualLine(
-                    name: _names[i],
-                    itemKcal: estimate.items[i].itemKcal,
-                    missing: false,
-                    grams: _grams[i],
-                    kcal: _kcals[i],
-                    enabled: widget.enabled,
-                    onName: () => _editName(i, unmatched: false),
-                    onGrams: () => _editGrams(i, unmatched: false),
-                    onKcal: () => _editKcalPer100g(i, unmatched: false),
-                    onRemove: () => widget.onChanged(estimate.removeMenuLine(i, unmatched: false)),
-                  )
-                : _estimateLine(
-                    name: estimate.items[i].detected.name,
-                    itemKcal: estimate.items[i].itemKcal,
-                    missing: false,
-                    grams: _grams[i],
-                    kcal: _kcals[i],
-                    enabled: widget.enabled,
-                    onGrams: () => _editGrams(i, unmatched: false),
-                    onKcal: () => _editKcalPer100g(i, unmatched: false),
-                  ),
-          for (var i = 0; i < estimate.unmatchedItems.length; i++)
-            widget.manual
-                ? _manualLine(
-                    name: _names[estimate.items.length + i],
-                    itemKcal: 0,
-                    missing: true,
-                    grams: _grams[estimate.items.length + i],
-                    kcal: _kcals[estimate.items.length + i],
-                    enabled: widget.enabled,
-                    onName: () => _editName(estimate.items.length + i, unmatched: true),
-                    onGrams: () => _editGrams(estimate.items.length + i, unmatched: true),
-                    onKcal: () => _editKcalPer100g(estimate.items.length + i, unmatched: true),
-                    onRemove: () => widget.onChanged(estimate.removeMenuLine(i, unmatched: true)),
-                  )
-                : _estimateLine(
-                    name: estimate.unmatchedItems[i].name,
-                    itemKcal: 0,
-                    missing: true,
-                    grams: _grams[estimate.items.length + i],
-                    kcal: _kcals[estimate.items.length + i],
-                    enabled: widget.enabled,
-                    onGrams: () => _editGrams(estimate.items.length + i, unmatched: true),
-                    onKcal: () => _editKcalPer100g(estimate.items.length + i, unmatched: true),
-                  ),
-          if (!widget.manual) const SizedBox(height: 8),
-          if (widget.manual) ...[
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                if (widget.onAdd != null)
-                  TextButton.icon(
-                    onPressed: widget.enabled ? widget.onAdd : null,
-                    icon: const Icon(Icons.add_rounded, size: 18),
-                    label: Text(s.addIngredient),
-                  ),
-                if (widget.onLookup != null) ...[
-                  const SizedBox(width: 8),
-                  TextButton.icon(
-                    onPressed: widget.enabled ? widget.onLookup : null,
-                    icon: const Icon(Icons.search_rounded, size: 18),
-                    label: Text(s.lookUpMenu),
-                  ),
-                ],
-              ],
-            ),
-          ],
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              estimate.items.isEmpty ? s.noMatchWriteSimpler : s.editIfOff(estimate.totalKcal),
-              style: const TextStyle(color: AppColors.textFaint, fontSize: 11, height: 1.3),
-            ),
-          ),
-        ],
-      ),
+      child: lines,
     );
   }
 
@@ -1595,48 +1827,140 @@ class _EstimateBreakdownState extends State<_EstimateBreakdown> {
   }) {
     final s = S.of(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              children: [
-                _MiniField(
-                  controller: name,
-                  hint: s.itemName,
-                  enabled: enabled,
-                  keyboardType: TextInputType.text,
-                  textAlign: TextAlign.left,
-                  onChanged: (_) => onName(),
-                ),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Text(
-                      missing ? s.noMatchShort : '$itemKcal kcal',
-                      style: TextStyle(
-                        color: missing ? AppColors.textMuted : AppColors.mint,
-                        fontSize: missing ? 12 : 16,
-                        fontWeight: FontWeight.w800,
-                      ),
+      padding: const EdgeInsets.only(bottom: 10),
+      child: IgnorePointer(
+        ignoring: !enabled,
+        child: Opacity(
+          opacity: enabled ? 1 : 0.55,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: AppColors.surfaceHigh.withValues(alpha: 0.55),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: AppColors.stroke),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(10, 10, 6, 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      children: [
+                        AppTextField(
+                          controller: name,
+                          label: s.itemName,
+                          hint: s.itemNameHint,
+                          icon: Icons.restaurant_rounded,
+                          keyboardType: TextInputType.text,
+                          textInputAction: TextInputAction.next,
+                          onChanged: (_) => onName(),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: AppTextField(
+                                controller: grams,
+                                label: s.weight,
+                                suffix: s.gramsHint,
+                                icon: Icons.scale_rounded,
+                                onChanged: (_) => onGrams(),
+                                scrubMin: 0,
+                                scrubMax: 2000,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: AppTextField(
+                                controller: kcal,
+                                label: widget.totalKcalMode ? s.totalEnergy : s.energy,
+                                suffix: widget.totalKcalMode ? s.kcalHint : s.kcalPer100g,
+                                icon: Icons.local_fire_department_rounded,
+                                onChanged: (_) => onKcal(),
+                                scrubMin: 0,
+                                scrubMax: widget.totalKcalMode ? 3000 : 950,
+                                scrubStep: widget.totalKcalMode ? 5 : 1,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (!missing) ...[
+                          const SizedBox(height: 8),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Padding(
+                              padding: const EdgeInsets.only(left: 4),
+                              child: Text(
+                                '$itemKcal kcal',
+                                style: const TextStyle(
+                                  color: AppColors.mint,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
-                    const Spacer(),
-                    _MiniField(controller: grams, suffix: 'g', enabled: enabled, onChanged: (_) => onGrams()),
-                    const SizedBox(width: 6),
-                    _MiniField(controller: kcal, suffix: '/100g', enabled: enabled, onChanged: (_) => onKcal()),
-                  ],
-                ),
-              ],
+                  ),
+                  IconButton(
+                    key: const Key('remove-ingredient'),
+                    onPressed: enabled ? onRemove : null,
+                    icon: const Icon(Icons.close_rounded, size: 18),
+                    color: AppColors.textFaint,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ],
+              ),
             ),
           ),
-          IconButton(
-            onPressed: enabled ? onRemove : null,
-            icon: const Icon(Icons.close_rounded, size: 16),
-            color: AppColors.textFaint,
-            visualDensity: VisualDensity.compact,
+        ),
+      ),
+    );
+  }
+}
+
+class _AddIngredientRow extends StatelessWidget {
+  final String label;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  const _AddIngredientRow({
+    required this.label,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: enabled ? onTap : null,
+      child: Opacity(
+        opacity: enabled ? 1 : 0.45,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppColors.strokeStrong),
           ),
-        ],
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.add_rounded, size: 18, color: AppColors.accentSoft),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: const TextStyle(
+                  color: AppColors.accentSoft,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1644,33 +1968,26 @@ class _EstimateBreakdownState extends State<_EstimateBreakdown> {
 
 class _MiniField extends StatelessWidget {
   final TextEditingController controller;
-  final String? suffix;
-  final String? hint;
+  final String suffix;
   final bool enabled;
-  final TextInputType keyboardType;
-  final TextAlign textAlign;
   final ValueChanged<String> onChanged;
 
   const _MiniField({
     required this.controller,
-    this.suffix,
-    this.hint,
+    required this.suffix,
     required this.enabled,
-    this.keyboardType = TextInputType.number,
-    this.textAlign = TextAlign.right,
     required this.onChanged,
   });
 
   @override
   Widget build(BuildContext context) {
-    final boxed = suffix != null;
     return SizedBox(
-      width: boxed ? (suffix == '/100g' ? 86 : 68) : null,
+      width: suffix == '/100g' ? 86 : 68,
       child: TextField(
         controller: controller,
         enabled: enabled,
-        keyboardType: keyboardType,
-        textAlign: textAlign,
+        keyboardType: TextInputType.number,
+        textAlign: TextAlign.right,
         scrollPadding: const EdgeInsets.fromLTRB(20, 20, 20, 80),
         style: const TextStyle(
           color: AppColors.text,
@@ -1679,12 +1996,6 @@ class _MiniField extends StatelessWidget {
         ),
         decoration: InputDecoration(
           isDense: true,
-          hintText: hint,
-          hintStyle: const TextStyle(
-            color: AppColors.textFaint,
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-          ),
           suffixText: suffix,
           suffixStyle: const TextStyle(
             color: AppColors.textMuted,

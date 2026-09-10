@@ -437,7 +437,7 @@ class MealEstimate {
   MealEstimate replaceGrounded(int index, {int? grams, int? kcalPer100g}) {
     if (index < 0 || index >= items.length) return this;
     final item = items[index];
-    final nextGrams = (grams ?? item.grams).clamp(1, 100000);
+    final nextGrams = (grams ?? item.grams).clamp(0, 100000);
     final next = [...items];
     next[index] = item.copyWith(
       detected: item.detected.copyWith(grams: nextGrams),
@@ -449,7 +449,7 @@ class MealEstimate {
   MealEstimate replaceUnmatched(int index, {int? grams, int? kcalPer100g}) {
     if (index < 0 || index >= unmatchedItems.length) return this;
     final item = unmatchedItems[index];
-    final nextGrams = (grams ?? item.grams).clamp(1, 100000);
+    final nextGrams = (grams ?? item.grams).clamp(0, 100000);
     if (kcalPer100g == null) {
       final next = [...unmatchedItems];
       next[index] = item.copyWith(grams: nextGrams);
@@ -478,12 +478,12 @@ class MealEstimate {
         ...unmatchedItems,
       ];
 
-  MealEstimate addUnmatched({String name = '', int grams = 30, FoodSense? sense}) {
-    final label = name.trim().isEmpty ? 'Item' : name.trim();
+  MealEstimate addUnmatched({String name = '', int grams = 0, FoodSense? sense}) {
+    final label = name.trim();
     return copyWith(
       unmatchedItems: [
         ...unmatchedItems,
-        DetectedFood(name: label, queryEn: label, grams: grams.clamp(1, 100000), sense: sense),
+        DetectedFood(name: label, queryEn: label, grams: grams.clamp(0, 100000), sense: sense),
       ],
     );
   }
@@ -509,7 +509,6 @@ class MealEstimate {
 
   MealEstimate renameMenuLine(int index, String name, {required bool unmatched}) {
     final cleaned = name.trim();
-    if (cleaned.isEmpty) return this;
     if (unmatched) {
       if (index < 0 || index >= unmatchedItems.length) return this;
       final next = [...unmatchedItems];

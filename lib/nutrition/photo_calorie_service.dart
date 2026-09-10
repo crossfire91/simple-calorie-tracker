@@ -23,6 +23,7 @@ class PhotoCalorieService {
     int? knownTotalKcal,
     String? note,
     String? extraContext,
+    bool noteIsIngredientList = false,
   }) async {
     final geminiKey = await NutritionApiKeys.gemini();
     if (geminiKey.isEmpty) {
@@ -38,6 +39,7 @@ class PhotoCalorieService {
       knownTotalKcal: knownTotalKcal,
       note: note,
       extraContext: extraContext,
+      noteIsIngredientList: noteIsIngredientList,
     );
     return _grounded(
       detected.mealName,

@@ -333,6 +333,7 @@ class S {
   String get saveKeys => _t('Save keys', 'Schlüssel speichern');
 
   String get energy => _t('Energy', 'Energie');
+  String get clearField => _t('Clear', 'Löschen');
   String get gramsHint => _t('g', 'g');
   String get kcalPer100g => _t('kcal / 100g', 'kcal / 100g');
   String get orTotalKcal => _t('or total kcal', 'oder Gesamt-kcal');
@@ -345,14 +346,15 @@ class S {
   String get mealTitle => _t('Title', 'Titel');
   String get mealTitleHint => _t('short name', 'Kurzname');
   String get originalNote => _t('Original note', 'Originalbeschreibung');
-  String get buildMenu => _t('Build a menu', 'Menü anlegen');
-  String get addIngredient => _t('Add item', 'Zutat hinzufügen');
+  String get buildMenu => _t('Add ingredients', 'Zutaten hinzufügen');
+  String get addIngredient => _t('Add ingredient', 'Zutat hinzufügen');
   String get lookUpMenu => _t('Look up items', 'Zutaten nachschlagen');
   String get menuHint => _t(
-        'Same list the estimate uses. Adjust a name, then look up or enter kcal.',
-        'Dieselbe Liste wie bei der Schätzung. Namen anpassen, dann nachschlagen oder kcal eingeben.',
+        'First line is what you typed above. Add more if it is a mix.',
+        'Die erste Zeile ist, was du oben getippt hast. Weitere Zeilen für ein gemischtes Gericht.',
       );
-  String get itemName => _t('Name', 'Name');
+  String get itemName => _t('Ingredient', 'Zutat');
+  String get itemNameHint => _t('oats, milk, banana', 'Hafer, Milch, Banane');
   String get estimateNeedsInput => _t(
         'Describe the meal, dictate it, or add a photo.',
         'Mahlzeit beschreiben, diktieren oder ein Foto hinzufügen.',
@@ -361,6 +363,10 @@ class S {
   String get lookUpThisText => _t('Look up this text', 'Diesen Text nachschlagen');
   String get addAPhoto => _t('Add a photo', 'Foto hinzufügen');
   String get photoStaysLocal => _t('Optional · stored in the log', 'Optional · bleibt im Tagebuch');
+  String get photoMayMissIngredients => _t(
+        'A photo often misses ingredients — even ones you listed. If the name and the ingredient match, that is only a description, not a recipe.',
+        'Ein Foto zeigt oft nicht alle Zutaten — wahrscheinlich auch nicht die, die du aufgeführt hast. Steht oben dasselbe wie bei der Zutat, ist das nur eine Beschreibung, keine Zutatenliste.',
+      );
   String get estimatePlate => _t('Estimate', 'Schätzen');
   String get unlockEstimate => _t('Unlock estimate', 'Schätzen freischalten');
   String get webUnverified => _t('Web · unverified', 'Web · unsicher');

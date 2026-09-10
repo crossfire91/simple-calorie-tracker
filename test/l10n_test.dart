@@ -71,8 +71,9 @@ void main() {
     expect(de.log, 'Eintragen');
     expect(de.editMeal, 'Mahlzeit bearbeiten');
     expect(de.originalNote, 'Originalbeschreibung');
-    expect(de.buildMenu, 'Menü anlegen');
-    expect(de.itemName, 'Name');
+    expect(de.buildMenu, 'Zutaten hinzufügen');
+    expect(de.itemName, 'Zutat');
+    expect(de.photoMayMissIngredients, contains('Foto'));
     expect(de.mealTitle, 'Titel');
     expect(de.saveChanges, 'Speichern');
     expect(de.looksFine, 'Übernehmen');
